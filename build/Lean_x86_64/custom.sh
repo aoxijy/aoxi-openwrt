@@ -290,7 +290,7 @@ CONFIG_PACKAGE_luci-app-easytier=y
 # CONFIG_PACKAGE_luci-app-wol is not set
 # CONFIG_PACKAGE_luci-app-access-control is not set
 # CONFIG_PACKAGE_luci-app-shutdown is not set
-# CONFIG_PACKAGE_luci-app-ksmbd is not set
+CONFIG_PACKAGE_luci-app-ksmbd=n
 # CONFIG_PACKAGE_luci-app-vsftpd is not set
 # CONFIG_PACKAGE_luci-i18n-ksmbd-zh-cn is not set
 # CONFIG_PACKAGE_luci-app-nlbwmon is not set
@@ -333,12 +333,12 @@ CONFIG_PACKAGE_libcap=y
 CONFIG_PACKAGE_libcap-bin=y
 CONFIG_PACKAGE_ip6tables-mod-nat=y
 CONFIG_PACKAGE_iptables-mod-extra=y
-# CONFIG_PACKAGE_autoshare-ksmbd is not set
-# CONFIG_PACKAGE_ksmbd is not set
-# CONFIG_PACKAGE_kmod-fs-ksmbd is not set
-# CONFIG_PACKAGE_ksmbd-server is not set
+CONFIG_PACKAGE_autoshare-ksmbd=n
+CONFIG_PACKAGE_ksmbd=n
+CONFIG_PACKAGE_kmod-fs-ksmbd=n
+CONFIG_PACKAGE_ksmbd-server=n
+CONFIG_PACKAGE_autosamba_INCLUDE_KSMBD=n
 # CONFIG_PACKAGE_vsftpd is not set
-# CONFIG_PACKAGE_autosamba_INCLUDE_KSMBD is not set
 # CONFIG_PACKAGE_openssh-sftp-server is not set
 CONFIG_PACKAGE_qemu-ga=y
 CONFIG_PACKAGE_autocore-x86=y
