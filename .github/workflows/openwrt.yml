@@ -8,34 +8,30 @@ on:
         required: false
         default: 'false'
         type: boolean
-
       SSH_ACTION:
         description: 'SSH远程配置固件'
         required: false
         default: 'false'
         type: boolean
-
       CLEAN_CACHE:
         description: '清理编译缓存'
         required: false
         default: 'false'
         type: boolean
-
-# 定时触发编译(1,5,10,15,20,25,30早3点)
   schedule:
-    - cron: 0 17 4,9,14,19,24,31 * *
+    - cron: '0 19 * * *'  # 每天UTC时间19点（北京时间凌晨3点）执行
 
-env: 
+env:
   TZ: Asia/Shanghai
   MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
   GITHUB_RELEASE: https://github.com/aoxijy/aoxi-openwrt/releases
 
-jobs: 
+jobs:
   build:
     runs-on: ubuntu-22.04
-    if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
+    if: github.event.repository.owner.id == github.event.sender.id || !github.event.sender.id
 
     name: 编译 Lean_x86_64
     strategy:
@@ -46,30 +42,45 @@ jobs:
     steps:
     - name: Checkout 仓库
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
 
     - name: 检测脚本设置
       run: |
-        source "${GITHUB_WORKSPACE}/build/${{matrix.target}}/settings.ini"
-        echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
-        echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
-        echo "CONFIG_FILE=${CONFIG_FILE}" >> $GITHUB_ENV
-        echo "FIRMWARE_MESSAGE=${FIRMWARE_MESSAGE}" >> $GITHUB_ENV
-        echo "CUSTOM_SH=${CUSTOM_SH}" >> $GITHUB_ENV
-        echo "CACHE_BUILD=${CACHE_BUILD}" >> $GITHUB_ENV
-        echo "SSH_ACTIONS=${SSH_ACTIONS}" >> $GITHUB_ENV
-        echo "UPLOAD_FIRMWARE=${UPLOAD_FIRMWARE}" >> $GITHUB_ENV
-        echo "UPLOAD_CONFIG=${UPLOAD_CONFIG}" >> $GITHUB_ENV
-        echo "UPLOAD_RELEASE=${UPLOAD_RELEASE}" >> $GITHUB_ENV
-        echo "TELEGRAM_BOT=${TELEGRAM_BOT}" >> $GITHUB_ENV
-        #添加变量
+        if [ -f "${GITHUB_WORKSPACE}/build/${{matrix.target}}/settings.ini" ]; then
+          source "${GITHUB_WORKSPACE}/build/${{matrix.target}}/settings.ini"
+          echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
+          echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
+          echo "CONFIG_FILE=${CONFIG_FILE}" >> $GITHUB_ENV
+          echo "FIRMWARE_MESSAGE=${FIRMWARE_MESSAGE}" >> $GITHUB_ENV
+          echo "CUSTOM_SH=${CUSTOM_SH}" >> $GITHUB_ENV
+          echo "CACHE_BUILD=${CACHE_BUILD}" >> $GITHUB_ENV
+          echo "SSH_ACTIONS=${SSH_ACTIONS}" >> $GITHUB_ENV
+          echo "UPLOAD_FIRMWARE=${UPLOAD_FIRMWARE}" >> $GITHUB_ENV
+          echo "UPLOAD_CONFIG=${UPLOAD_CONFIG}" >> $GITHUB_ENV
+          echo "UPLOAD_RELEASE=${UPLOAD_RELEASE}" >> $GITHUB_ENV
+          echo "TELEGRAM_BOT=${TELEGRAM_BOT}" >> $GITHUB_ENV
+        else
+          # 默认设置
+          echo "REPO_URL=https://github.com/coolsnowwolf/lede" >> $GITHUB_ENV
+          echo "REPO_BRANCH=master" >> $GITHUB_ENV
+          echo "CONFIG_FILE=.config" >> $GITHUB_ENV
+          echo "FIRMWARE_MESSAGE=Lean_OpenWrt" >> $GITHUB_ENV
+          echo "CUSTOM_SH=custom.sh" >> $GITHUB_ENV
+          echo "CACHE_BUILD=false" >> $GITHUB_ENV
+          echo "SSH_ACTIONS=false" >> $GITHUB_ENV
+          echo "UPLOAD_FIRMWARE=true" >> $GITHUB_ENV
+          echo "UPLOAD_CONFIG=true" >> $GITHUB_ENV
+          echo "UPLOAD_RELEASE=true" >> $GITHUB_ENV
+          echo "TELEGRAM_BOT=false" >> $GITHUB_ENV
+        fi
         echo "HOME=${GITHUB_WORKSPACE}/openwrt" >> $GITHUB_ENV
-        echo "WORKPATH=${GITHUB_WORKSPACE}/openwrt/build/${{matrix.target}}" >> $GITHUB_ENV
+        echo "WORKPATH=${GITHUB_WORKSPACE}/build/${{matrix.target}}" >> $GITHUB_ENV
 
     - name: 清理编译缓存（如需要）
       if: github.event.inputs.CLEAN_CACHE == 'true'
       run: |
         echo "正在强制清理编译缓存..."
-        # 清理可能的现有openwrt目录
         sudo rm -rf /github-builder/openwrt
         sudo rm -rf $GITHUB_WORKSPACE/openwrt
         echo "编译缓存已清理"
@@ -104,7 +115,7 @@ jobs:
         sudo chown $USER:$GROUPS /workdir
         sudo timedatectl set-timezone "$TZ"
         echo
-        echo " 系统空间      类型   总数  已用  可用 使用率"
+        echo "系统空间信息:"
         df -hT $PWD
 
     - name: 释放Ubuntu磁盘空间
@@ -136,7 +147,7 @@ jobs:
         sudo chown -R $USER:$GROUPS /github-builder
         df -Th
 
-    - name: 下载Lean_x86_64源码
+    - name: 下载OpenWrt源码
       working-directory: /github-builder
       run: |
         df -hT $PWD
@@ -144,11 +155,15 @@ jobs:
         ln -sf /github-builder/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: 缓存加速
-      uses: stupidloud/cachewrtbuild@main
-      if: env.CACHE_BUILD == 'true' || (github.event.inputs.CACHE_BUILD == 'true')
+      uses: actions/cache@v3
+      if: env.CACHE_BUILD == 'true' || github.event.inputs.CACHE_BUILD == 'true'
       with:
-        ccache: 'true'
-        prefix: ${{ github.workspace }}/openwrt
+        path: |
+          /github-builder/openwrt/dl
+          /github-builder/openwrt/ccache
+        key: ${{ runner.os }}-openwrt-${{ hashFiles('build/**/settings.ini') }}
+        restore-keys: |
+          ${{ runner.os }}-openwrt-
 
     - name: 更新时区、编译时间
       id: date
@@ -164,238 +179,207 @@ jobs:
     - name: 加载源,定制文件并生成自定义配置
       run: |
         # 复制配置文件到源码目录
-        cp -Rf `find ./ -maxdepth 1 -type d ! -path './openwrt' ! -path './'` openwrt
-        cd openwrt
+        cp -Rf ${GITHUB_WORKSPACE}/build/* /github-builder/openwrt/build/ 2>/dev/null || true
+        cd /github-builder/openwrt
 
-        echo "执行脚本"
-        if [ -f "${WORKPATH}/$CUSTOM_SH" ]; then
-        (
-          chmod +x ${WORKPATH}/$CUSTOM_SH
-          /bin/bash "${WORKPATH}/$CUSTOM_SH"
-        )
-        fi
-
-        echo "复制脚本文件..."
-        if [ -n "$(ls -A "${GITHUB_WORKSPACE}/openwrt/build/scripts/files" 2>/dev/null)" ]; then
-          if [ -d "files" ];then
-           cp -rf ${GITHUB_WORKSPACE}/openwrt/build/scripts/files/* files
-           chmod -R 755 ${HOME}/files
-          else
-           cp -rf ${GITHUB_WORKSPACE}/openwrt/build/scripts/files/ files
-           chmod -R 755 ${HOME}/files
-          fi
+        echo "执行自定义脚本..."
+        if [ -f "${GITHUB_WORKSPACE}/build/${{matrix.target}}/$CUSTOM_SH" ]; then
+          chmod +x "${GITHUB_WORKSPACE}/build/${{matrix.target}}/$CUSTOM_SH"
+          export WORKPATH="${GITHUB_WORKSPACE}/build/${{matrix.target}}"
+          /bin/bash "${GITHUB_WORKSPACE}/build/${{matrix.target}}/$CUSTOM_SH"
+        else
+          echo "警告: 未找到自定义脚本 ${GITHUB_WORKSPACE}/build/${{matrix.target}}/$CUSTOM_SH"
         fi
 
         echo "复制配置文件..."
-        if [ -n "$(ls -A "${WORKPATH}/files" 2>/dev/null)" ]; then
-          if [ -d "files" ];then
-           cp -rf ${WORKPATH}/files/* files
-           chmod -R 755 ${WORKPATH}/files
+        # 复制sources/etc下的配置文件到files/etc
+        if [ -d "${GITHUB_WORKSPACE}/build/${{matrix.target}}/sources/etc" ]; then
+          mkdir -p files/etc
+          cp -rf "${GITHUB_WORKSPACE}/build/${{matrix.target}}/sources/etc/"* files/etc/ 2>/dev/null || true
+          echo "自定义配置文件已复制到files/etc/"
+          echo "复制的文件:"
+          find files/etc -type f | head -10
+        else
+          echo "警告: 未找到sources/etc目录"
+        fi
+
+        # 复制其他配置文件
+        if [ -n "$(ls -A "${GITHUB_WORKSPACE}/build/${{matrix.target}}/files" 2>/dev/null)" ]; then
+          if [ -d "files" ]; then
+            cp -rf "${GITHUB_WORKSPACE}/build/${{matrix.target}}/files/"* files/
+            chmod -R 755 files
           else
-           cp -rf ${WORKPATH}/files/ files
-           chmod -R 755 ${WORKPATH}/files
+            cp -rf "${GITHUB_WORKSPACE}/build/${{matrix.target}}/files" .
+            chmod -R 755 files
           fi
         fi
 
-        # 删除原有的复制源码文件步骤，因为custom.sh中已经处理了
-        # echo "复制源码文件..."
-        # if [ -n "$(ls -A "${WORKPATH}/sources" 2>/dev/null)" ]; then
-        #  cp -Rf ${WORKPATH}/sources/* ./
-        # fi
-
-        echo "写入配置文件..."
-        mv ${WORKPATH}/$CONFIG_FILE .config
-        
+        # 写入配置文件
+        if [ -f "${GITHUB_WORKSPACE}/build/${{matrix.target}}/$CONFIG_FILE" ]; then
+          cp "${GITHUB_WORKSPACE}/build/${{matrix.target}}/$CONFIG_FILE" .config
+        else
+          echo "警告: 未找到配置文件 ${GITHUB_WORKSPACE}/build/${{matrix.target}}/$CONFIG_FILE"
+          touch .config
+        fi
 
         make defconfig
 
     - name: SSH远程连接服务器
-      uses: db-one/debugger-action@main
-      if: env.SSH_ACTIONS == 'true' || (github.event.inputs.SSH_ACTION == 'true')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      uses: mxschmitt/action-tmate@v3
+      if: env.SSH_ACTIONS == 'true' || github.event.inputs.SSH_ACTION == 'true'
+      with:
+        limit-access-to-actor: true
 
     - name: 输出编译信息
       run: |
-        cd openwrt
-
-        echo
-        echo " 系统空间      类型   总数  已用  可用 使用率"
+        cd /github-builder/openwrt
+        echo "系统空间信息:"
         df -hT $PWD
-
-        echo
         echo "=========================================="
-        echo
-
-        echo "	    CPU物理数量:$(cat /proc/cuinfo| grep "physical id"| sort| uniq| wc -l)"
-        echo "	    CPU核心及版本信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c)"
-
-        echo
+        echo "CPU信息:"
+        echo "物理CPU数量: $(grep "physical id" /proc/cpuinfo | sort | uniq | wc -l)"
+        echo "CPU核心及版本信息: $(grep "model name" /proc/cpuinfo | head -1 | cut -f2 -d:)"
         echo "=========================================="
-        echo
-
-
-        ZZZ="package/lean/default-settings/files/zzz-default-settings"
-        if [ -f "$ZZZ" ]; then
-          echo "	    当前编译版本：$(cat $ZZZ|grep DISTRIB_REVISION= | sed 's/^.\{24\}//g' | sed 's/.\{26\}$//')"
+        # 检查编译版本信息
+        if [ -f "package/lean/default-settings/files/zzz-default-settings" ]; then
+          echo "当前编译版本：$(grep "DISTRIB_REVISION" package/lean/default-settings/files/zzz-default-settings | cut -d= -f2 | tr -d \')"
         fi
-
-        echo "KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')" >> $GITHUB_ENV
-        echo "	    内核版本：$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')"
-        echo "	    源码分支：${{ env.REPO_BRANCH }}"
-
-        echo "	    编译时间：${{ env.FILE_TIME1 }}"
-
-        echo
+        # 获取内核版本
+        if [ -f "target/linux/x86/Makefile" ]; then
+          KERNEL_PATCHVER=$(grep "KERNEL_PATCHVER" target/linux/x86/Makefile | cut -d= -f2 | tr -d ' ')
+          echo "KERNEL_PATCHVER=$KERNEL_PATCHVER" >> $GITHUB_ENV
+          echo "内核版本：$KERNEL_PATCHVER"
+        fi
+        echo "源码分支：$REPO_BRANCH"
+        echo "编译时间：$FILE_TIME1"
         echo "=========================================="
-
-        grep -i CONFIG_PACKAGE_luci-app .config | grep  -v \# > Plug-in
-        grep -i CONFIG_PACKAGE_luci-theme .config | grep  -v \# >> Plug-in
-        sed -i '/INCLUDE/d' Plug-in > /dev/null 2>&1
-        sed -i 's/CONFIG_PACKAGE_/、/g' Plug-in
-        sed -i '/Transparent_Proxy/d' Plug-in > /dev/null 2>&1 #排除 luci-app-passwall_Transparent_Proxy
-        sed -i '/qbittorrent-simple_dynamic/d' Plug-in > /dev/null 2>&1 #排除 luci-app-qbittorrent-simple_dynamic
-        sed -i 's/=y/\ /g' Plug-in
-        awk '$0=NR$0' Plug-in > Plug-2
-        awk '{print "	" $0}' Plug-2 > Plug-in
-
-        echo
-        echo
-        echo "	      已选插件列表"
-        cat Plug-in
-        rm -rf {Plug-in,Plug-2}
-
-        echo
+        # 显示已选插件列表
+        echo "已选插件列表:"
+        if [ -f ".config" ]; then
+          grep -i "CONFIG_PACKAGE_luci-app" .config | grep -v \# | head -20 | awk '{print "  " NR ". " $0}'
+          echo "（显示前20个插件）"
+        fi
         echo "=========================================="
-
-        echo
-        echo
-        echo "输出完整插件信息..."
-        echo
-        echo
-        cat .config
 
     - name: 下载编译所需文件
       run: |
-        cd openwrt && make download -j4
+        cd /github-builder/openwrt
+        make download -j$(nproc) || make download -j1 V=s
 
     - name: 开始编译固件
       id: compile
       run: |
-        cd openwrt
-        make -j$(nproc) V=sc 2>&1 | tee build.log || (echo "编译失败，查看详细日志..." && tail -n 100 build.log && exit 1)
+        cd /github-builder/openwrt
+        make -j$(nproc) V=s 2>&1 | tee build.log || (echo "编译失败，查看详细日志..." && tail -n 100 build.log && exit 1)
 
     - name: 检查空间使用情况
+      if: always()
       run: |
         echo "======================="
-        echo "Space usage:"
+        echo "空间使用情况:"
         echo "======================="
         df -hT
         echo "======================="
-        du -h --max-depth=1 openwrt/ --exclude=build_dir --exclude=bin
-        du -h --max-depth=1 openwrt/build_dir
-        du -h --max-depth=1 openwrt/bin
+        du -h --max-depth=1 /github-builder/openwrt/ --exclude=build_dir --exclude=bin || true
+        echo "======================="
 
     - name: 详细错误诊断
       if: failure()
       run: |
-        cd openwrt
+        cd /github-builder/openwrt
         echo "=== 详细错误诊断 ==="
-        
-        echo "1. 检查包冲突:"
-        grep -E "CONFIG_PACKAGE_(vsftpd|vsftpd-alt)" .config || echo "未找到 FTP 相关配置"
-        
+        echo "1. 检查编译日志中的错误:"
+        grep -i "error\|failed\|warning" build.log | tail -n 20 || true
         echo ""
-        echo "2. 查找其他可能的冲突:"
-        find . -name "*.mk" -exec grep -l "conflict\|clash" {} \; | head -n 5
-        
+        echo "2. 检查包冲突:"
+        grep -E "CONFLICT\|冲突" build.log | tail -n 10 || true
         echo ""
-        echo "3. 检查编译日志中的错误:"
-        grep -i "error\|conflict\|clash" build.log | tail -n 20
-        
-        echo ""
-        echo "4. 检查已安装的包:"
-        find staging_dir -name "*.install" -exec grep -l "vsftpd" {} \; | head -n 5
+        echo "3. 检查缺失的依赖:"
+        grep -i "missing\|依赖\|depends" build.log | tail -n 10 || true
 
     - name: 整理固件文件
       if: success()
       id: organizer
       run: |
-        mkdir -p ./artifact/firmware
-        mkdir -p ./artifact/buildinfo
-        cp -rf openwrt/.config ./artifact/buildinfo/${{matrix.target}}.config || true
-        rm -rf $(find openwrt/bin/targets/ -type d -name "packages")
-        cp -rf $(find openwrt/bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/ || true        
-        cp -rf $(find openwrt/bin/targets/ -type f \( -name "*squashfs*efi*img*" -o -name "*squashfs*sysupgrade*bin*" -o -name "*squashfs*factory*bin*" \) ) ./artifact/firmware/
-        echo "编译完成时间..."
+        mkdir -p ${GITHUB_WORKSPACE}/artifact/firmware
+        mkdir -p ${GITHUB_WORKSPACE}/artifact/buildinfo
+        # 复制配置文件
+        cp -f /github-builder/openwrt/.config ${GITHUB_WORKSPACE}/artifact/buildinfo/${{matrix.target}}.config || true
+        # 复制buildinfo和manifest文件
+        cp -f $(find /github-builder/openwrt/bin/targets/ -name "*.buildinfo" -o -name "*.manifest") ${GITHUB_WORKSPACE}/artifact/buildinfo/ 2>/dev/null || true
+        # 复制固件文件
+        cp -f $(find /github-builder/openwrt/bin/targets/ -name "*.img.gz" -o -name "*.bin") ${GITHUB_WORKSPACE}/artifact/firmware/ 2>/dev/null || true
+        # 计算编译时间
         START_SECONDS=${{ env.START_SECONDS }}
         END_TIME=`date +'%Y-%m-%d %H:%M:%S'`
         END_SECONDS=$(date --date="$END_TIME" +%s)
         SECONDS=$((END_SECONDS-START_SECONDS))
-        HOUR=$(( $SECONDS/3600 )) && MIN=$(( ($SECONDS-${HOUR}*3600)/60 )) && SEC=$(( $SECONDS-${HOUR}*3600-${MIN}*60 ))
+        HOUR=$((SECONDS/3600))
+        MIN=$(( (SECONDS-HOUR*3600)/60 ))
+        SEC=$((SECONDS-HOUR*3600-MIN*60))
         echo "BUILD_TIME=${HOUR}时${MIN}分${SEC}秒" >> $GITHUB_ENV
+        echo "编译用时: ${HOUR}时${MIN}分${SEC}秒"
 
     - name: 上传固件文件
       if: steps.compile.outcome == 'success' && env.UPLOAD_FIRMWARE == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: ${{matrix.target}}_OpenWrt_firmware_${{ env.FILE_TIME }}
-        path: ./artifact/firmware/
+        path: ${GITHUB_WORKSPACE}/artifact/firmware/*
 
     - name: 上传编译日志
       if: failure()
       uses: actions/upload-artifact@v4
       with:
         name: build_log_${{ github.run_id }}
-        path: openwrt/build.log
+        path: /github-builder/openwrt/build.log
 
     - name: 上传固件信息
       if: steps.compile.outcome == 'success' && env.UPLOAD_CONFIG == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: ${{matrix.target}}_OpenWrt_buildinfo_${{ env.FILE_TIME }}
-        path: ./artifact/buildinfo/
+        path: ${GITHUB_WORKSPACE}/artifact/buildinfo/*
 
     - name: 自动发布固件到 Releases
-      uses: ncipollo/release-action@main
+      uses: softprops/action-gh-release@v1
       if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
       with:
         name: ${{ env.FILE_TIME1 }} 「 ${{ env.FIRMWARE_MESSAGE }} 」
         tag: ${{ env.FILE_TIME2 }}-${{matrix.target}}
         token: ${{ secrets.MY_GITHUB_TOKEN }}
-        body: |            
-            ★  源码 : ${{ env.REPO_URL }}
-            ★  分支 : ${{ env.REPO_BRANCH }}
-            ★  感谢源码作者无私分享！
+        body: |
+          ★ 源码: ${{ env.REPO_URL }}
+          ★ 分支: ${{ env.REPO_BRANCH }}
+          ★ 感谢源码作者无私分享！
 
-            🖥 内核版本：${{ env.KERNEL_PATCHVER }}
+          🖥 内核版本: ${{ env.KERNEL_PATCHVER }}
 
-            🎈 编译时间：${{ env.FILE_TIME1 }}
+          🎈 编译时间: ${{ env.FILE_TIME1 }}
 
-            ⏰ 编译用时：${{ env.BUILD_TIME }}
+          ⏰ 编译用时: ${{ env.BUILD_TIME }}
 
-            🎉 [ ${{ env.FIRMWARE_MESSAGE }} ]固件下载
+          🎉 [ ${{ env.FIRMWARE_MESSAGE }} ]固件下载
 
-            ━━━━━━━━━━━━━━━━━━━━
+          ━━━━━━━━━━━━━━━━━━━━
 
-            =========================================
-
-        artifacts: ./artifact/firmware/*
+          =========================================
+        files: ${GITHUB_WORKSPACE}/artifact/firmware/*
 
     - name: 删除运行记录
+      if: success()
       uses: Mattraks/delete-workflow-runs@v2
       with:
         token: ${{ secrets.MY_GITHUB_TOKEN }}
         repository: ${{ github.repository }}
-        retain_days: 30     #保留最后多少记录不删除
-        keep_minimum_runs: 0
+        retain_days: 30
+        keep_minimum_runs: 5
 
     - name: 删除自动发布的旧固件
-      uses: shidahuilang/delete-older-releases@main
       if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
+      uses: dev-drprasad/delete-older-releases@v0.2.0
       with:
-        keep_latest: 20         #保留多少个releases不删除
+        keep_latest: 10
         delete_tags: true
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
@@ -403,18 +387,14 @@ jobs:
     - name: 编译成功信息通知-Telegram
       if: steps.compile.outcome == 'success' && env.TELEGRAM_BOT == 'true'
       run: |
-        curl "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="您的${{ env.FIRMWARE_MESSAGE }}固件成功编译完成了！
 
-           您的${{ env.FIRMWARE_MESSAGE }}固件成功编译完成了！
+        🖥 内核版本: ${{ env.KERNEL_PATCHVER }}
+        🎈 编译时间: ${{ env.FILE_TIME1 }}
+        ⏰ 编译用时: ${{ env.BUILD_TIME }}
+        🎉 发布地址: ${{ env.GITHUB_RELEASE }}
 
-          🖥 内核版本：${{ env.KERNEL_PATCHVER }}
-
-          🎈 编译时间：${{ env.FILE_TIME1 }}
-
-          ⏰ 编译用时：${{ env.BUILD_TIME }}
-
-          🎉 发布地址：${{ env.GITHUB_RELEASE }}
-
-          🌴 固件已经编译完成 🎈！！！
-
-          " >/dev/null 2>&1 && echo "ok..."
+        🌴 固件已经编译完成 🎈！！！" \
+          >/dev/null 2>&1 && echo "Telegram通知发送成功"
