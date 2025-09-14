@@ -19,7 +19,7 @@ on:
         default: 'false'
         type: boolean
   schedule:
-    - cron: '0 19 * * *'  # 每天UTC时间19点（北京时间凌晨3点）执行
+    - cron: '0 19 * * 3'  # 每周三UTC时间19点（北京时间周四凌晨3点）执行
 
 env:
   TZ: Asia/Shanghai
