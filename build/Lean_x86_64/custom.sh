@@ -86,6 +86,15 @@ if [ ! -f "files/etc/pre_install/luci-app-npc_all.ipk" ]; then
     echo "警告: luci-app-npc包下载失败! 预安装将跳过此包"
 fi
 
+# 复制自定义配置文件到files目录
+echo "复制自定义配置文件..."
+if [ -d "${WORKPATH}/sources/openwrt/etc" ]; then
+    cp -rf "${WORKPATH}/sources/openwrt/etc/"* "files/etc/" 2>/dev/null || true
+    echo "自定义配置文件已复制到files/etc/"
+else
+    echo "警告: 未找到sources/openwrt/etc目录"
+fi
+
 # 自定义定制选项
 NET="package/base-files/luci2/bin/config_generate"
 ZZZ="package/lean/default-settings/files/zzz-default-settings"
@@ -102,7 +111,7 @@ fi
 #
 sed -i 's#192.168.1.1#172.18.18.222#g' $NET                                               # 定制默认IP为172.18.18.222
 sed -i 's@.*CYXluq4wUazHjmCDBCqXF*@#&@g' $ZZZ                                             # 取消系统默认密码
-sed -i "s/LEDE /GanQuanRu build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ                    # 增加自己个性名称
+sed -i "s/LEDE /ONE build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ                    # 增加自己个性名称
 echo "uci set luci.main.mediaurlbase=/luci-static/argon" >> $ZZZ                          # 设置默认主题
 
 # ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● #
