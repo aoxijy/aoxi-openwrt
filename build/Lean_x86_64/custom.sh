@@ -16,6 +16,12 @@ git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-pack
 ./scripts/feeds clean
 ./scripts/feeds update -a && ./scripts/feeds install -a -f
 
+# 强制删除 ksmbd 相关包
+echo "强制删除 ksmbd 相关包..."
+rm -rf feeds/luci/applications/luci-app-ksmbd 2>/dev/null || true
+rm -rf feeds/packages/net/ksmbd 2>/dev/null || true
+rm -rf package/network/services/ksmbd 2>/dev/null || true
+
 # 删除部分默认包
 rm -rf feeds/luci/applications/luci-app-qbittorrent
 rm -rf feeds/luci/applications/luci-app-openclash
