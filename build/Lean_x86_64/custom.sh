@@ -333,6 +333,7 @@ CONFIG_PACKAGE_libcap=y
 CONFIG_PACKAGE_libcap-bin=y
 CONFIG_PACKAGE_ip6tables-mod-nat=y
 CONFIG_PACKAGE_iptables-mod-extra=y
+# CONFIG_PACKAGE_autoshare-ksmbd is not set
 # CONFIG_PACKAGE_ksmbd is not set
 # CONFIG_PACKAGE_ksmbd-server is not set
 # CONFIG_PACKAGE_vsftpd is not set
