@@ -96,7 +96,7 @@ fi
 #
 sed -i 's#192.168.1.1#172.18.18.222#g' $NET                                               # 定制默认IP为172.18.18.222
 sed -i 's@.*CYXluq4wUazHjmCDBCqXF*@#&@g' $ZZZ                                             # 取消系统默认密码
-sed -i "s/LEDE /ONE build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ                    # 增加自己个性名称
+sed -i "s/LEDE /GanQuanRu build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ                    # 增加自己个性名称
 echo "uci set luci.main.mediaurlbase=/luci-static/argon" >> $ZZZ                          # 设置默认主题
 
 # ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● #
