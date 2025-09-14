@@ -197,10 +197,11 @@ jobs:
           fi
         fi
 
-        echo "复制源码文件..."
-        if [ -n "$(ls -A "${WORKPATH}/sources" 2>/dev/null)" ]; then
-         cp -Rf ${WORKPATH}/sources/* ./
-        fi
+        # 删除原有的复制源码文件步骤，因为custom.sh中已经处理了
+        # echo "复制源码文件..."
+        # if [ -n "$(ls -A "${WORKPATH}/sources" 2>/dev/null)" ]; then
+        #  cp -Rf ${WORKPATH}/sources/* ./
+        # fi
 
         echo "写入配置文件..."
         mv ${WORKPATH}/$CONFIG_FILE .config
@@ -227,7 +228,7 @@ jobs:
         echo "=========================================="
         echo
 
-        echo "	    CPU物理数量:$(cat /proc/cpuinfo| grep "physical id"| sort| uniq| wc -l)"
+        echo "	    CPU物理数量:$(cat /proc/cuinfo| grep "physical id"| sort| uniq| wc -l)"
         echo "	    CPU核心及版本信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c)"
 
         echo
