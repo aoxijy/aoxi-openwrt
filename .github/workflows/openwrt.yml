@@ -98,8 +98,8 @@ jobs:
                    bzip2 ccache clang cmake cpio curl device-tree-compiler ecj flex gawk gcc-multilib \
                    g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-i386 libelf-dev \
                    libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev \
-                   libreadline-dev libssl-dev libpython3-dev libtool libyaml-dev libz-dev lld llvm lrzsz msmtp \
-                   ninja-build p7zip p7zip-full patch pkgconf python3 python3 python3-ply python3-docutils \
+                   libreadline-dev libssl-dev libpython3-dev libtool libyaml-dev libz-dev llld llvm lrzsz msmtp \
+                   ninja-build p7zip p7zip-full patch pkgconf python3 python3-ply python3-docutils \
                    python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
                    upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd libfuse-dev gettext genisoimage python3-setuptools || true
         sudo -E systemctl daemon-reload
@@ -342,12 +342,12 @@ jobs:
         path: ${GITHUB_WORKSPACE}/artifact/buildinfo/*
 
     - name: 自动发布固件到 Releases
-      uses: softprops/action-gh-release@v1
+      uses: ncipollo/release-action@v1
       if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
       with:
         name: ${{ env.FILE_TIME1 }} 「 ${{ env.FIRMWARE_MESSAGE }} 」
         tag: ${{ env.FILE_TIME2 }}-${{matrix.target}}
-        token: ${{ secrets.MY_GITHUB_TOKEN }}
+        artifacts: ${GITHUB_WORKSPACE}/artifact/firmware/*
         body: |
           ★ 源码: ${{ env.REPO_URL }}
           ★ 分支: ${{ env.REPO_BRANCH }}
@@ -364,7 +364,7 @@ jobs:
           ━━━━━━━━━━━━━━━━━━━━
 
           =========================================
-        files: ${GITHUB_WORKSPACE}/artifact/firmware/*
+        token: ${{ secrets.MY_GITHUB_TOKEN }}
 
     - name: 删除运行记录
       if: success()
