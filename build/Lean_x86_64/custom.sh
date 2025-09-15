@@ -16,7 +16,6 @@ git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-pack
 ./scripts/feeds clean
 ./scripts/feeds update -a && ./scripts/feeds install -a -f
 
-
 # 删除部分默认包
 rm -rf feeds/luci/applications/luci-app-qbittorrent
 rm -rf feeds/luci/applications/luci-app-openclash
@@ -38,14 +37,16 @@ if [ -d "$PKG_DIR" ] && [ -n "$(ls -A $PKG_DIR 2>/dev/null)" ]; then
     echo "开始安装预置IPK包..."
 
     # 第一阶段：优先安装架构特定的包 (e.g., npc_0.26.26-r16_x86_64.ipk)
-    for pkg in $PKG_DIR/*_*.ipk; do
-        if [ -f "$pkg" ]; then
+    # 这些通常是基础程序或内核模块，LuCI包依赖它们。
+    for pkg in $PKG_DIR/*_*.ipk; do # 模式匹配包含下划线_的包名
+        if [ -f "$pkg" ]; then # 确保是文件，防止没匹配到时循环到通配符本身
             echo "优先安装基础包: $(basename "$pkg")"
             opkg install "$pkg" --force-depends
         fi
     done
 
     # 第二阶段：安装所有架构通用的包 (e.g., luci-app-npc_all.ipk)
+    # 这些通常是LuCI界面、主题或脚本，它们依赖第一阶段安装的包。
     for pkg in $PKG_DIR/*_all.ipk; do
         if [ -f "$pkg" ]; then
             echo "安装LuCI应用包: $(basename "$pkg")"
@@ -67,8 +68,8 @@ chmod +x files/etc/uci-defaults/98-pre_install
 # 下载预安装的IPK包
 echo "下载预安装IPK包..."
 # 示例：下载npc和luci-app-npc
-wget -P files/etc/pre_install/ https://example.com/path/to/npc_0.26.26-r16_x86_64.ipk || echo "npc包下载失败，将继续编译"
-wget -P files/etc/pre_install/ https://example.com/path/to/luci-app-npc_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
+wget -O files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk https://example.com/path/to/npc_0.26.26-r16_x86_64.ipk || echo "npc包下载失败，将继续编译"
+wget -O files/etc/pre_install/luci-app-npc_all.ipk https://example.com/path/to/luci-app-npc_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
 
 # 检查下载是否成功
 if [ ! -f "files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk" ]; then
@@ -79,120 +80,44 @@ if [ ! -f "files/etc/pre_install/luci-app-npc_all.ipk" ]; then
     echo "警告: luci-app-npc包下载失败! 预安装将跳过此包"
 fi
 
-# 复制自定义配置文件到files目录
-echo "复制自定义配置文件..."
-if [ -d "${WORKPATH}/sources/etc" ]; then
-    # 创建目标目录
-    mkdir -p files/etc
-    
-    # 复制所有配置文件
-    echo "正在从 ${WORKPATH}/sources/etc/ 复制配置文件到 files/etc/"
-    cp -rf "${WORKPATH}/sources/etc/"* "files/etc/" 2>/dev/null || true
-    
-    # 检查复制结果
-    echo "配置文件复制完成，检查复制的文件:"
-    if [ -d "files/etc/config" ]; then
-        echo "- OpenWrt配置文件目录已创建: files/etc/config/"
-        echo "  包含文件: $(find files/etc/config -type f | wc -l) 个"
-    fi
-    
-    if [ -d "files/etc/openclash" ]; then
-        echo "- OpenClash配置文件目录已创建: files/etc/openclash/"
-        echo "  包含文件: $(find files/etc/openclash -type f | wc -l) 个"
-    fi
-    
-    # 显示前几个文件作为示例
-    echo "复制的文件示例:"
-    find "files/etc" -type f | head -5
-else
-    echo "警告: 未找到 ${WORKPATH}/sources/etc 目录"
-    echo "当前工作目录: $(pwd)"
-    echo "目录内容:"
-    ls -la "${WORKPATH}/" || echo "无法访问 ${WORKPATH}"
-fi
-
 # 自定义定制选项
-NET="package/base-files/files/bin/config_generate"
+NET="package/base-files/luci2/bin/config_generate"
 ZZZ="package/lean/default-settings/files/zzz-default-settings"
-
 # 读取内核版本
-if [ -f "target/linux/x86/Makefile" ]; then
-    KERNEL_PATCHVER=$(grep KERNEL_PATCHVER target/linux/x86/Makefile | awk -F '=' '{print $2}' | tr -d ' ')
-    KERNEL_TESTING_PATCHVER=$(grep KERNEL_TESTING_PATCHVER target/linux/x86/Makefile | awk -F '=' '{print $2}' | tr -d ' ')
-    
-    if [ -n "$KERNEL_TESTING_PATCHVER" ] && [ -n "$KERNEL_PATCHVER" ] && [ "$KERNEL_TESTING_PATCHVER" != "$KERNEL_PATCHVER" ]; then
-        sed -i "s/KERNEL_PATCHVER := $KERNEL_PATCHVER/KERNEL_PATCHVER := $KERNEL_TESTING_PATCHVER/g" target/linux/x86/Makefile
-        echo "内核版本已更新为 $KERNEL_TESTING_PATCHVER"
-    else
-        echo "内核版本不需要更新"
-    fi
+KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')
+KERNEL_TESTING_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_TESTING_PATCHVER | sed 's/^.\{25\}//g')
+if [[ $KERNEL_TESTING_PATCHVER > $KERNEL_PATCHVER ]]; then
+  sed -i "s/$KERNEL_PATCHVER/$KERNEL_TESTING_PATCHVER/g" target/linux/x86/Makefile        # 修改内核版本为最新
+  echo "内核版本已更新为 $KERNEL_TESTING_PATCHVER"
 else
-    echo "警告: 未找到 target/linux/x86/Makefile 文件"
+  echo "内核版本不需要更新"
 fi
 
-# 修改默认IP
-if [ -f "$NET" ]; then
-    sed -i 's/192\.168\.1\.1/172.18.18.222/g' "$NET"
-    echo "默认IP已修改为 172.18.18.222"
-else
-    echo "警告: 未找到 $NET 文件"
-fi
+#
+sed -i 's#192.168.1.1#172.18.18.222#g' $NET                                               # 定制默认IP为172.18.18.222
+sed -i 's@.*CYXluq4wUazHjmCDBCqXF*@#&@g' $ZZZ                                             # 取消系统默认密码
+sed -i "s/LEDE /GanQuanRu build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ                    # 增加自己个性名称
+echo "uci set luci.main.mediaurlbase=/luci-static/argon" >> $ZZZ                          # 设置默认主题
 
-# 取消系统默认密码
-if [ -f "$ZZZ" ]; then
-    sed -i 's/.*CYXluq4wUazHjmCDBCqXF*./#&/g' "$ZZZ"
-    echo "已取消系统默认密码"
-    
-    # 增加个性名称
-    BUILD_DATE=$(TZ=UTC-8 date "+%Y.%m.%d")
-    sed -i "s/LEDE /GanQuanRu build $BUILD_DATE @ LEDE /g" "$ZZZ"
-    echo "已添加个性名称: ONE build $BUILD_DATE"
-    
-    # 设置默认主题
-    echo "uci set luci.main.mediaurlbase='/luci-static/argon'" >> "$ZZZ"
-    echo "已设置默认主题为 argon"
-else
-    echo "警告: 未找到 $ZZZ 文件"
-fi
+# ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● #
 
-# 修改默认时间格式
-if [ -d "package/lean/autocore/files" ]; then
-    find package/lean/autocore/files -name "index.htm" -exec sed -i 's#localtime  = os.date()#localtime  = os.date("%Y年%m月%d日") .. " " .. translate(os.date("%A")) .. " " .. os.date("%X")#g' {} \;
-    echo "已修改默认时间格式"
-else
-    echo "警告: 未找到 package/lean/autocore/files 目录"
-fi
+sed -i 's#localtime  = os.date()#localtime  = os.date("%Y年%m月%d日") .. " " .. translate(os.date("%A")) .. " " .. os.date("%X")#g' package/lean/autocore/files/*/index.htm               # 修改默认时间格式
+sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' package/base-files/files/etc/banner           # 自定义banner显示
+sed -i '/exit 0/i\ethtool -s eth0 speed 10000 duplex full' package/base-files/files//etc/rc.local               # 强制显示2500M和全双工（默认PVE下VirtIO不识别）
 
-# 自定义banner显示
-if [ -f "package/base-files/files/etc/banner" ]; then
-    sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' package/base-files/files/etc/banner
-    echo "已自定义banner显示"
-else
-    echo "警告: 未找到 package/base-files/files/etc/banner 文件"
-fi
-
-# 强制显示2500M和全双工
-if [ -f "package/base-files/files/etc/rc.local" ]; then
-    sed -i '/exit 0/i\ethtool -s eth0 speed 10000 duplex full' package/base-files/files/etc/rc.local
-    echo "已添加网卡设置到 rc.local"
-else
-    echo "警告: 未找到 package/base-files/files/etc/rc.local 文件"
-fi
+# ●●●●●●●●●●●●●●●●●●●●●●●●定制部分●●●●●●●●●●●●●●●●●●●●●●●● #
 
 # ========================性能跑分========================
-if [ -f "$ZZZ" ]; then
-    echo "rm -f /etc/uci-defaults/xxx-coremark" >> "$ZZZ"
-    cat >> "$ZZZ" <<EOF
+echo "rm -f /etc/uci-defaults/xxx-coremark" >> "$ZZZ"
+cat >> $ZZZ <<EOF
 cat /dev/null > /etc/bench.log
 echo " (CpuMark : 191219.823122" >> /etc/bench.log
 echo " Scores)" >> /etc/bench.log
 EOF
-    echo "已添加性能跑分配置"
-fi
 
 # ================ 网络设置 =======================================
-if [ -f "$ZZZ" ]; then
-    cat >> "$ZZZ" <<EOF
+
+cat >> $ZZZ <<-EOF
 # 设置网络-旁路由模式
 uci set network.lan.gateway='172.18.18.2'                  # 旁路由设置 IPv4 网关
 uci set network.lan.dns='223.5.5.5 119.29.29.29'          # 旁路由设置 DNS
@@ -218,69 +143,99 @@ uci del dhcp.lan.ra_management                            # DHCPv6 模式-禁用
 uci commit dhcp
 uci commit network
 uci commit firewall
+
 EOF
-    echo "已添加旁路由网络设置"
-fi
+
+# =======================================================
 
 # 检查 OpenClash 是否启用编译
-if [ -f ".config" ] && grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config; then
-    echo "OpenClash 已启用编译"
-    
-    # 判断系统架构
-    arch=$(uname -m)
-    case "$arch" in
-        x86_64)
-            arch="amd64"
-            ;;
-        aarch64|arm64)
-            arch="arm64"
-            ;;
-        *)
-            arch="unknown"
-            ;;
-    esac
-    
-    if [ "$arch" != "unknown" ]; then
-        echo "正在为OpenClash下载 $arch 架构的内核"
-        
-        # 创建目录
-        mkdir -p files/etc/openclash/core
-        
-        # 下载Meta内核
-        if wget -q -O /tmp/clash.tar.gz https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz; then
-            echo "OpenClash Meta内核下载成功"
-            tar -zxvf /tmp/clash.tar.gz -C /tmp/ >/dev/null 2>&1
-            
-            if [ -f "/tmp/clash" ]; then
-                mv -f /tmp/clash files/etc/openclash/core/clash_meta
-                chmod +x files/etc/openclash/core/clash_meta
-                echo "OpenClash Meta内核配置成功"
-            else
-                echo "OpenClash Meta内核解压失败"
-            fi
-            
-            rm -f /tmp/clash.tar.gz
-        else
-            echo "OpenClash Meta内核下载失败"
-        fi
-    else
-        echo "未知系统架构: $arch，跳过OpenClash内核下载"
-    fi
+if grep -qE '^(CONFIG_PACKAGE_luci-app-openclash=n|# CONFIG_PACKAGE_luci-app-openclash=)' "${WORKPATH}/$CUSTOM_SH"; then
+  # OpenClash 未启用，不执行任何操作
+  echo "OpenClash 未启用编译"
+  echo 'rm -rf /etc/openclash' >> $ZZZ
 else
-    echo "OpenClash 未启用编译"
-    if [ -f "$ZZZ" ]; then
-        echo 'rm -rf /etc/openclash' >> "$ZZZ"
+  # OpenClash 已启用，执行配置
+  if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" "${WORKPATH}/$CUSTOM_SH"; then
+    # 判断系统架构
+    arch=$(uname -m)  # 获取系统架构
+    case "$arch" in
+      x86_64)
+        arch="amd64"
+        ;;
+      aarch64|arm64)
+        arch="arm64"
+        ;;
+    esac
+    # OpenClash Meta 开始配置内核
+    echo "正在执行：为OpenClash下载内核"
+    mkdir -p $HOME/clash-core
+    mkdir -p $HOME/files/etc/openclash/core
+    cd $HOME/clash-core
+    # 下载Meta内核
+    wget -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
+    if [[ $? -ne 0 ]];then
+      wget -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
+    else
+      echo "OpenClash Meta内核压缩包下载成功，开始解压文件"
     fi
+    tar -zxvf clash-linux-$arch.tar.gz
+    if [[ -f "$HOME/clash-core/clash" ]]; then
+      mv -f $HOME/clash-core/clash $HOME/files/etc/openclash/core/clash_meta
+      chmod +x $HOME/files/etc/openclash/core/clash_meta
+      echo "OpenClash Meta内核配置成功"
+    else
+      echo "OpenClash Meta内核配置失败"
+    fi
+    rm -rf $HOME/clash-core/clash-linux-$arch.tar.gz
+    rm -rf $HOME/clash-core
+  fi
 fi
+
+# =======================================================
 
 # 修改退出命令到最后
-if [ -f "$ZZZ" ]; then
-    sed -i '/exit 0/d' "$ZZZ"
-    echo "exit 0" >> "$ZZZ"
-fi
+cd $HOME && sed -i '/exit 0/d' $ZZZ && echo "exit 0" >> $ZZZ
+
+# ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● #
+
 
 # 创建自定义配置文件
-touch .config
+
+cd $WORKPATH
+touch ./.config
+
+#
+# ●●●●●●●●●●●●●●●●●●●●●●●●固件定制部分●●●●●●●●●●●●●●●●●●●●●●●●
+# 
+
+# 
+# 如果不对本区块做出任何编辑, 则生成默认配置固件. 
+# 
+
+# 以下为定制化固件选项和说明:
+#
+
+#
+# 有些插件/选项是默认开启的, 如果想要关闭, 请参照以下示例进行编写:
+# 
+#          ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+#        ■|  # 取消编译VMware镜像:                    |■
+#        ■|  cat >> .config <<EOF                   |■
+#        ■|  # CONFIG_VMDK_IMAGES is not set        |■
+#        ■|  EOF                                    |■
+#          ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+#
+
+# 
+# 以下是一些提前准备好的一些插件选项.
+# 直接取消注释相应代码块即可应用. 不要取消注释代码块上的汉字说明.
+# 如果不需要代码块里的某一项配置, 只需要删除相应行.
+#
+# 如果需要其他插件, 请按照示例自行添加.
+# 注意, 只需添加依赖链顶端的包. 如果你需要插件 A, 同时 A 依赖 B, 即只需要添加 A.
+# 
+# 无论你想要对固件进行怎样的定制, 都需要且只需要修改 EOF 回环内的内容.
+# 
 
 # 编译x64固件:
 cat >> .config <<EOF
@@ -335,7 +290,7 @@ CONFIG_PACKAGE_luci-app-easytier=y
 # CONFIG_PACKAGE_luci-app-wol is not set
 # CONFIG_PACKAGE_luci-app-access-control is not set
 # CONFIG_PACKAGE_luci-app-shutdown is not set
-CONFIG_PACKAGE_luci-app-ksmbd=n
+# CONFIG_PACKAGE_luci-app-ksmbd is not set
 # CONFIG_PACKAGE_luci-app-vsftpd is not set
 # CONFIG_PACKAGE_luci-i18n-ksmbd-zh-cn is not set
 # CONFIG_PACKAGE_luci-app-nlbwmon is not set
@@ -378,12 +333,11 @@ CONFIG_PACKAGE_libcap=y
 CONFIG_PACKAGE_libcap-bin=y
 CONFIG_PACKAGE_ip6tables-mod-nat=y
 CONFIG_PACKAGE_iptables-mod-extra=y
-CONFIG_PACKAGE_autoshare-ksmbd=n
-CONFIG_PACKAGE_ksmbd=n
-CONFIG_PACKAGE_kmod-fs-ksmbd=n
-CONFIG_PACKAGE_ksmbd-server=n
-CONFIG_PACKAGE_autosamba_INCLUDE_KSMBD=n
+# CONFIG_PACKAGE_autoshare-ksmbd is not set
+# CONFIG_PACKAGE_ksmbd is not set
+# CONFIG_PACKAGE_ksmbd-server is not set
 # CONFIG_PACKAGE_vsftpd is not set
+# CONFIG_PACKAGE_autosamba_INCLUDE_KSMBD is not set
 # CONFIG_PACKAGE_openssh-sftp-server is not set
 CONFIG_PACKAGE_qemu-ga=y
 CONFIG_PACKAGE_autocore-x86=y
@@ -394,7 +348,14 @@ cat >> .config <<EOF
 CONFIG_HAS_FPU=y
 EOF
 
-# 清理配置文件格式
-sed -i 's/^[ \t]*//g' .config
 
-echo "自定义配置文件创建完成"
+# 
+# ●●●●●●●●●●●●●●●●●●●●●●●●固件定制部分结束●●●●●●●●●●●●●●●●●●●●●●●● #
+# 
+
+sed -i 's/^[ \t]*//g' ./.config
+
+# 返回目录
+cd $HOME
+
+# 配置文件创建完成
