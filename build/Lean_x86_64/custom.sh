@@ -45,7 +45,7 @@ if [ -d "$PKG_DIR" ] && [ -n "$(ls -A $PKG_DIR 2>/dev/null)" ]; then
         fi
     done
 
-    # 第二阶段：安装所有架构通用的包 (e.g., luci-app-npc_all.ipk)
+    # 第二阶段：安装所有架构通用的包 (e.g., luci-app-npc_git-25.077.30939-0b8bbe4_all.ipk)
     # 这些通常是LuCI界面、主题或脚本，它们依赖第一阶段安装的包。
     for pkg in $PKG_DIR/*_all.ipk; do
         if [ -f "$pkg" ]; then
@@ -68,15 +68,15 @@ chmod +x files/etc/uci-defaults/98-pre_install
 # 下载预安装的IPK包
 echo "下载预安装IPK包..."
 # 示例：下载npc和luci-app-npc
-wget -O files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk https://example.com/path/to/npc_0.26.26-r16_x86_64.ipk || echo "npc包下载失败，将继续编译"
-wget -O files/etc/pre_install/luci-app-npc_all.ipk https://example.com/path/to/luci-app-npc_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
+wget -O files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk https://dllkids.xyz/packages/x86_64/npc_0.26.26-r16_x86_64.ipk || echo "npc包下载失败，将继续编译"
+wget -O files/etc/pre_install/luci-app-npc_all.ipk https://dllkids.xyz/packages/x86_64/luci-app-npc_git-25.077.30939-0b8bbe4_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
 
 # 检查下载是否成功
 if [ ! -f "files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk" ]; then
     echo "警告: npc包下载失败! 预安装将跳过此包"
 fi
 
-if [ ! -f "files/etc/pre_install/luci-app-npc_all.ipk" ]; then
+if [ ! -f "files/etc/pre_install/luci-app-npc_git-25.077.30939-0b8bbe4_all.ipk" ]; then
     echo "警告: luci-app-npc包下载失败! 预安装将跳过此包"
 fi
 
