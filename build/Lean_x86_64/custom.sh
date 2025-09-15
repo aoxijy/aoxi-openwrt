@@ -283,7 +283,7 @@ CONFIG_PACKAGE_luci-app-ssr-plus=y
 CONFIG_PACKAGE_luci-app-passwall=y
 CONFIG_PACKAGE_luci-app-easytier=y
 # CONFIG_PACKAGE_luci-app-npc is not set
-# CONFIG_PACKAGE_luci-app-arpbind is not set
+CONFIG_PACKAGE_luci-app-arpbind=y
 # CONFIG_PACKAGE_luci-app-upnp is not set
 # CONFIG_PACKAGE_luci-app-ddns is not set
 # CONFIG_PACKAGE_luci-app-vlmcsd is not set
