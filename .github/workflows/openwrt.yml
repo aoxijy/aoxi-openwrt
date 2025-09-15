@@ -98,8 +98,8 @@ jobs:
                    bzip2 ccache clang cmake cpio curl device-tree-compiler ecj flex gawk gcc-multilib \
                    g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-i386 libelf-dev \
                    libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev \
-                   libreadline-dev libssl-dev libpython3-dev libtool libyaml-dev libz-dev llld llvm lrzsz msmtp \
-                   ninja-build p7zip p7zip-full patch pkgconf python3 python3-ply python3-docutils \
+                   libreadline-dev libssl-dev libpython3-dev libtool libyaml-dev libz-dev lld llvm lrzsz msmtp \
+                   ninja-build p7zip p7zip-full patch pkgconf python3 python3 python3-ply python3-docutils \
                    python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
                    upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd libfuse-dev gettext genisoimage python3-setuptools || true
         sudo -E systemctl daemon-reload
@@ -272,30 +272,13 @@ jobs:
         cd /github-builder/openwrt
         make -j$(nproc) V=s 2>&1 | tee build.log || (echo "编译失败，查看详细日志..." && tail -n 100 build.log && exit 1)
 
-    - name: 检查空间使用情况
-      if: always()
+    - name: 检查编译输出文件
+      if: success()
       run: |
-        echo "======================="
-        echo "空间使用情况:"
-        echo "======================="
-        df -hT
-        echo "======================="
-        du -h --max-depth=1 /github-builder/openwrt/ --exclude=build_dir --exclude=bin || true
-        echo "======================="
-
-    - name: 详细错误诊断
-      if: failure()
-      run: |
-        cd /github-builder/openwrt
-        echo "=== 详细错误诊断 ==="
-        echo "1. 检查编译日志中的错误:"
-        grep -i "error\|failed\|warning" build.log | tail -n 20 || true
-        echo ""
-        echo "2. 检查包冲突:"
-        grep -E "CONFLICT\|冲突" build.log | tail -n 10 || true
-        echo ""
-        echo "3. 检查缺失的依赖:"
-        grep -i "missing\|依赖\|depends" build.log | tail -n 10 || true
+        echo "检查编译输出目录内容..."
+        find /github-builder/openwrt/bin -type f -name "*.img*" -o -name "*.bin" | head -20
+        echo "固件文件列表:"
+        find /github-builder/openwrt/bin/targets -type f \( -name "*.img*" -o -name "*.bin" \) 2>/dev/null || echo "未找到固件文件"
 
     - name: 整理固件文件
       if: success()
@@ -303,12 +286,35 @@ jobs:
       run: |
         mkdir -p ${GITHUB_WORKSPACE}/artifact/firmware
         mkdir -p ${GITHUB_WORKSPACE}/artifact/buildinfo
+        
+        echo "查找固件文件..."
+        # 查找所有固件文件
+        FIRMWARE_FILES=$(find /github-builder/openwrt/bin/targets -type f \( -name "*.img*" -o -name "*.bin" -o -name "*.gz" \) 2>/dev/null || true)
+        
+        if [ -n "$FIRMWARE_FILES" ]; then
+          echo "找到固件文件:"
+          echo "$FIRMWARE_FILES"
+          # 复制固件文件
+          echo "$FIRMWARE_FILES" | while read -r file; do
+            cp -v "$file" ${GITHUB_WORKSPACE}/artifact/firmware/
+          done
+        else
+          echo "警告: 未找到任何固件文件"
+          # 尝试其他可能的位置
+          find /github-builder/openwrt/bin -type f \( -name "*.img*" -o -name "*.bin" -o -name "*.gz" \) -exec cp -v {} ${GITHUB_WORKSPACE}/artifact/firmware/ \; 2>/dev/null || true
+        fi
+        
         # 复制配置文件
-        cp -f /github-builder/openwrt/.config ${GITHUB_WORKSPACE}/artifact/buildinfo/${{matrix.target}}.config || true
+        cp -f /github-builder/openwrt/.config ${GITHUB_WORKSPACE}/artifact/buildinfo/${{matrix.target}}.config 2>/dev/null || true
+        
         # 复制buildinfo和manifest文件
-        cp -f $(find /github-builder/openwrt/bin/targets/ -name "*.buildinfo" -o -name "*.manifest") ${GITHUB_WORKSPACE}/artifact/buildinfo/ 2>/dev/null || true
-        # 复制固件文件
-        cp -f $(find /github-builder/openwrt/bin/targets/ -name "*.img.gz" -o -name "*.bin") ${GITHUB_WORKSPACE}/artifact/firmware/ 2>/dev/null || true
+        find /github-builder/openwrt/bin/targets -name "*.buildinfo" -o -name "*.manifest" -exec cp -v {} ${GITHUB_WORKSPACE}/artifact/buildinfo/ \; 2>/dev/null || true
+        
+        # 显示最终复制的文件
+        echo "最终artifact目录内容:"
+        ls -la ${GITHUB_WORKSPACE}/artifact/firmware/ || echo "firmware目录为空"
+        ls -la ${GITHUB_WORKSPACE}/artifact/buildinfo/ || echo "buildinfo目录为空"
+        
         # 计算编译时间
         START_SECONDS=${{ env.START_SECONDS }}
         END_TIME=`date +'%Y-%m-%d %H:%M:%S'`
@@ -325,7 +331,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{matrix.target}}_OpenWrt_firmware_${{ env.FILE_TIME }}
-        path: ${GITHUB_WORKSPACE}/artifact/firmware/*
+        path: ${{ github.workspace }}/artifact/firmware/
 
     - name: 上传编译日志
       if: failure()
@@ -339,7 +345,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{matrix.target}}_OpenWrt_buildinfo_${{ env.FILE_TIME }}
-        path: ${GITHUB_WORKSPACE}/artifact/buildinfo/*
+        path: ${{ github.workspace }}/artifact/buildinfo/
 
     - name: 自动发布固件到 Releases
       uses: ncipollo/release-action@v1
@@ -347,7 +353,7 @@ jobs:
       with:
         name: ${{ env.FILE_TIME1 }} 「 ${{ env.FIRMWARE_MESSAGE }} 」
         tag: ${{ env.FILE_TIME2 }}-${{matrix.target}}
-        artifacts: ${GITHUB_WORKSPACE}/artifact/firmware/*
+        artifacts: ${{ github.workspace }}/artifact/firmware/*
         body: |
           ★ 源码: ${{ env.REPO_URL }}
           ★ 分支: ${{ env.REPO_BRANCH }}
