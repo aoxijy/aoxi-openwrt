@@ -339,6 +339,9 @@ CONFIG_PACKAGE_iptables-mod-extra=y
 # CONFIG_PACKAGE_vsftpd is not set
 # CONFIG_PACKAGE_autosamba_INCLUDE_KSMBD is not set
 # CONFIG_PACKAGE_openssh-sftp-server is not set
+CONFIG_PACKAGE_ksmbd is not set
+CONFIG_PACKAGE_ksmbd-server is not set
+CONFIG_PACKAGE_autoshare-ksmbd is not set
 CONFIG_PACKAGE_qemu-ga=y
 CONFIG_PACKAGE_autocore-x86=y
 EOF
