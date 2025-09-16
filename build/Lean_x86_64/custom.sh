@@ -69,7 +69,7 @@ chmod +x files/etc/uci-defaults/98-pre_install
 echo "下载预安装IPK包..."
 # 示例：下载npc和luci-app-npc
 wget -O files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk https://dllkids.xyz/packages/x86_64/npc_0.26.26-r16_x86_64.ipk || echo "npc包下载失败，将继续编译"
-wget -O files/etc/pre_install/luci-app-npc_all.ipk https://dllkids.xyz/packages/x86_64/luci-app-npc_git-25.077.30939-0b8bbe4_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
+wget -O files/etc/pre_install/luci-app-npc_git-25.077.30939-0b8bbe4_all.ipk https://dllkids.xyz/packages/x86_64/luci-app-npc_git-25.077.30939-0b8bbe4_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
 
 # 检查下载是否成功
 if [ ! -f "files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk" ]; then
