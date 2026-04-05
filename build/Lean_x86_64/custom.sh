@@ -12,14 +12,36 @@ cat feeds.conf.default
 # 添加第三方软件包
 git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-package
 
+# =======================================================
+# OpenClash 处理：确保使用最新版本
+# =======================================================
+echo "=== 处理 OpenClash 源码 ==="
+# 不要删除 feeds 中的 openclash，改为强制更新到最新
+if [ -d "feeds/luci/applications/luci-app-openclash" ]; then
+    echo "发现现有 OpenClash，更新到最新..."
+    rm -rf feeds/luci/applications/luci-app-openclash
+fi
+
+# 从官方最新源码获取 OpenClash
+git clone https://github.com/vernesong/OpenClash.git package/luci-app-openclash
+if [ $? -eq 0 ]; then
+    echo "✓ OpenClash 源码已更新到最新"
+    # 获取最新版本号
+    cd package/luci-app-openclash
+    LATEST_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+    cd ../..
+    echo "OpenClash 最新版本: $LATEST_VERSION"
+else
+    echo "✗ OpenClash 源码下载失败"
+fi
+
+# 删除其他可能冲突的包（但保留 openclash）
+rm -rf feeds/luci/applications/luci-app-qbittorrent
+rm -rf feeds/luci/themes/luci-theme-argon
+
 # 更新并安装源
 ./scripts/feeds clean
 ./scripts/feeds update -a && ./scripts/feeds install -a -f
-
-# 删除部分默认包
-rm -rf feeds/luci/applications/luci-app-qbittorrent
-rm -rf feeds/luci/applications/luci-app-openclash
-rm -rf feeds/luci/themes/luci-theme-argon
 
 # 创建预安装目录和脚本
 echo "创建预安装目录和脚本..."
@@ -148,16 +170,6 @@ uci commit network
 uci commit firewall
 
 EOF
-
-# =======================================================
-# OpenClash 内核下载（在 .config 生成之后，根据实际启用状态）
-# 注意：此部分将移到 .config 生成之后执行，但为了方便，先保留在这里，但需修改判断逻辑
-# 实际执行时确保在生成 .config 之后运行
-# =======================================================
-
-# 先不执行 OpenClash 内核下载，待 .config 生成后再判断
-# 标记一个变量，稍后执行
-DO_OPENCLASH=false
 
 # =======================================================
 # 开始生成 .config
@@ -384,29 +396,162 @@ sed -n '30,70p' .config
 echo "=== 修复完成 ==="
 
 # =======================================================
+# 强制启用和修复 luci-app-turboacc
+# =======================================================
+echo "=== 强制配置 luci-app-turboacc ==="
+
+# 1. 确保 turboacc 已启用
+if grep -q "^CONFIG_PACKAGE_luci-app-turboacc=y" ".config"; then
+    echo "✓ turboacc 已启用"
+else
+    echo "✗ turboacc 未启用，正在修复..."
+    sed -i 's/^# CONFIG_PACKAGE_luci-app-turboacc is not set/CONFIG_PACKAGE_luci-app-turboacc=y/' .config
+    # 如果没有该配置项，直接添加
+    if ! grep -q "CONFIG_PACKAGE_luci-app-turboacc" .config; then
+        echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
+    fi
+fi
+
+# 2. 强制启用 turboacc 依赖的内核模块
+echo "=== 配置 turboacc 依赖模块 ==="
+for module in fast-classifier shortcut-fe; do
+    if grep -q "CONFIG_PACKAGE_kmod-${module}=y" .config; then
+        echo "✓ kmod-${module} 已启用"
+    else
+        echo "启用 kmod-${module}..."
+        sed -i "s/^# CONFIG_PACKAGE_kmod-${module} is not set/CONFIG_PACKAGE_kmod-${module}=y/" .config
+        if ! grep -q "CONFIG_PACKAGE_kmod-${module}" .config; then
+            echo "CONFIG_PACKAGE_kmod-${module}=y" >> .config
+        fi
+    fi
+done
+
+# 3. 禁用冲突的加速方案（避免与 turboacc 冲突）
+echo "=== 禁用冲突的加速方案 ==="
+for conflict in sfe flowoffload; do
+    if grep -q "CONFIG_PACKAGE_luci-app-${conflict}=y" .config; then
+        echo "发现冲突的 ${conflict}，正在禁用..."
+        sed -i "s/^CONFIG_PACKAGE_luci-app-${conflict}=y/# CONFIG_PACKAGE_luci-app-${conflict} is not set/" .config
+    fi
+done
+
+# 4. 针对 x86_64 架构的特殊优化
+echo "=== 添加 x86_64 架构优化 ==="
+cat >> .config <<EOF
+# x86_64 架构优化
+CONFIG_KERNEL_NETFILTER_XT_MATCH_FLOWOFFLOAD=y
+CONFIG_KERNEL_NETFILTER_XT_TARGET_FLOWOFFLOAD=y
+EOF
+
+# 5. 运行 make oldconfig 自动解决依赖
+echo "=== 运行 make oldconfig 解决依赖 ==="
+make oldconfig
+
+# 6. 最终验证
+echo "=== 验证 turboacc 配置 ==="
+if grep -q "CONFIG_PACKAGE_luci-app-turboacc=y" .config; then
+    echo "✓✓✓ turboacc 配置成功！"
+    # 显示相关配置
+    echo "相关配置："
+    grep -E "turboacc|fast-classifier|shortcut-fe" .config
+else
+    echo "✗✗✗ turboacc 配置失败！请检查"
+    echo "当前 turboacc 相关配置："
+    grep -E "turboacc|fast-classifier|shortcut-fe" .config || echo "未找到任何相关配置"
+fi
+
+# =======================================================
 # OpenClash 内核下载（在 .config 生成之后，根据实际启用状态）
+# =======================================================
 if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
-    echo "检测到 OpenClash 已启用，开始下载内核..."
+    echo "检测到 OpenClash 已启用，开始下载最新内核..."
     mkdir -p files/etc/openclash/core
+    
+    # 下载 Meta 内核（推荐）
     arch="amd64"   # 目标为 x86_64
-    KERNEL_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-${arch}.tar.gz"
-    wget -q "$KERNEL_URL" -O /tmp/clash-meta.tar.gz
+    echo "下载 OpenClash Meta 内核..."
+    META_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-${arch}.tar.gz"
+    wget -q "$META_URL" -O /tmp/clash-meta.tar.gz
+    
     if [ $? -eq 0 ] && [ -s /tmp/clash-meta.tar.gz ]; then
         tar -xzf /tmp/clash-meta.tar.gz -C files/etc/openclash/core/
         if [ -f files/etc/openclash/core/clash ]; then
             mv files/etc/openclash/core/clash files/etc/openclash/core/clash_meta
             chmod +x files/etc/openclash/core/clash_meta
-            echo "OpenClash Meta 内核配置成功"
+            echo "✓ OpenClash Meta 内核配置成功"
+            
+            # 获取内核版本信息
+            META_VERSION=$(files/etc/openclash/core/clash_meta -v 2>/dev/null | head -n1 || echo "unknown")
+            echo "Meta 内核版本: $META_VERSION"
         else
-            echo "OpenClash Meta 内核解压失败"
+            echo "✗ OpenClash Meta 内核解压失败"
         fi
         rm -f /tmp/clash-meta.tar.gz
     else
-        echo "OpenClash Meta 内核下载失败，请检查网络或更换下载源"
+        echo "✗ OpenClash Meta 内核下载失败，尝试备用源..."
+        # 备用下载源
+        META_URL_BACKUP="https://github.com/vernesong/OpenClash/raw/core/master/meta/clash-linux-${arch}.tar.gz"
+        wget -q "$META_URL_BACKUP" -O /tmp/clash-meta.tar.gz
+        if [ $? -eq 0 ] && [ -s /tmp/clash-meta.tar.gz ]; then
+            tar -xzf /tmp/clash-meta.tar.gz -C files/etc/openclash/core/
+            if [ -f files/etc/openclash/core/clash ]; then
+                mv files/etc/openclash/core/clash files/etc/openclash/core/clash_meta
+                chmod +x files/etc/openclash/core/clash_meta
+                echo "✓ OpenClash Meta 内核配置成功（备用源）"
+            fi
+            rm -f /tmp/clash-meta.tar.gz
+        else
+            echo "✗ OpenClash Meta 内核下载失败"
+        fi
     fi
+    
+    # 下载 Dev 内核（可选，作为备选）
+    echo "下载 OpenClash Dev 内核..."
+    DEV_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/dev/clash-linux-${arch}.tar.gz"
+    wget -q "$DEV_URL" -O /tmp/clash-dev.tar.gz
+    
+    if [ $? -eq 0 ] && [ -s /tmp/clash-dev.tar.gz ]; then
+        tar -xzf /tmp/clash-dev.tar.gz -C files/etc/openclash/core/
+        if [ -f files/etc/openclash/core/clash ]; then
+            chmod +x files/etc/openclash/core/clash
+            echo "✓ OpenClash Dev 内核配置成功"
+        fi
+        rm -f /tmp/clash-dev.tar.gz
+    else
+        echo "✗ OpenClash Dev 内核下载失败（非关键错误）"
+    fi
+    
+    # 显示内核文件
+    echo "已安装的内核文件："
+    ls -lh files/etc/openclash/core/ 2>/dev/null || echo "无内核文件"
 else
     echo "OpenClash 未启用，跳过内核下载"
     echo 'rm -rf /etc/openclash' >> $ZZZ
+fi
+
+# =======================================================
+# 确保 OpenClash LuCI 客户端是最新版本
+# =======================================================
+if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
+    echo "=== 验证 OpenClash LuCI 客户端版本 ==="
+    
+    # 检查 package 目录中的 OpenClash 版本
+    if [ -d "package/luci-app-openclash" ]; then
+        cd package/luci-app-openclash
+        CLIENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+        CLIENT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        cd ../..
+        echo "OpenClash LuCI 客户端版本: $CLIENT_VERSION"
+        echo "OpenClash LuCI 客户端 Commit: $CLIENT_COMMIT"
+        
+        # 写入版本信息到固件
+        mkdir -p files/etc/openclash
+        echo "Client Version: $CLIENT_VERSION" > files/etc/openclash/version
+        echo "Client Commit: $CLIENT_COMMIT" >> files/etc/openclash/version
+        echo "Build Date: $(date '+%Y-%m-%d %H:%M:%S')" >> files/etc/openclash/version
+    else
+        echo "警告: OpenClash 客户端源码目录不存在"
+    fi
 fi
 
 # =======================================================
@@ -418,3 +563,5 @@ echo "exit 0" >> $ZZZ
 
 # 返回目录（可选）
 cd $HOME
+
+echo "=== custom.sh 执行完成 ==="
