@@ -13,26 +13,102 @@ cat feeds.conf.default
 git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-package
 
 # =======================================================
-# OpenClash 处理：确保使用最新版本
+# OpenClash 处理：自动获取最新版本
 # =======================================================
 echo "=== 处理 OpenClash 源码 ==="
-# 不要删除 feeds 中的 openclash，改为强制更新到最新
-if [ -d "feeds/luci/applications/luci-app-openclash" ]; then
-    echo "发现现有 OpenClash，更新到最新..."
-    rm -rf feeds/luci/applications/luci-app-openclash
-fi
 
-# 从官方最新源码获取 OpenClash
-git clone https://github.com/vernesong/OpenClash.git package/luci-app-openclash
-if [ $? -eq 0 ]; then
-    echo "✓ OpenClash 源码已更新到最新"
-    # 获取最新版本号
-    cd package/luci-app-openclash
-    LATEST_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
-    cd ../..
-    echo "OpenClash 最新版本: $LATEST_VERSION"
+# 获取 OpenClash 最新版本信息
+echo "正在获取 OpenClash 最新版本..."
+VERSION_URL="https://raw.githubusercontent.com/vernesong/OpenClash/package/master/version"
+OPENCLASH_VERSION=$(curl -s $VERSION_URL | head -n1 | sed 's/^v//' | tr -d '\n')
+
+if [ -n "$OPENCLASH_VERSION" ]; then
+    echo "✓ 获取到 OpenClash 最新版本: v${OPENCLASH_VERSION}"
+    
+    # 下载对应版本的 OpenClash 源码
+    echo "正在下载 OpenClash v${OPENCLASH_VERSION} 源码..."
+    OPENCLASH_DOWNLOAD_URL="https://github.com/vernesong/OpenClash/releases/download/v${OPENCLASH_VERSION}/luci-app-openclash_${OPENCLASH_VERSION}_all.ipk"
+    
+    # 创建临时目录
+    mkdir -p /tmp/openclash_temp
+    
+    # 下载 IPK 包
+    wget -q "$OPENCLASH_DOWNLOAD_URL" -O /tmp/openclash_temp/luci-app-openclash.ipk
+    
+    if [ $? -eq 0 ] && [ -f "/tmp/openclash_temp/luci-app-openclash.ipk" ]; then
+        echo "✓ OpenClash IPK 下载成功"
+        
+        # 解压 IPK 包
+        cd /tmp/openclash_temp
+        tar -xzf luci-app-openclash.ipk 2>/dev/null || true
+        tar -xzf data.tar.gz 2>/dev/null || true
+        
+        # 复制 LuCI 文件到 package 目录
+        if [ -d "/tmp/openclash_temp/usr/lib/lua/luci" ]; then
+            # 清理旧的 OpenClash 目录
+            rm -rf package/luci-app-openclash
+            
+            # 创建新的 OpenClash 目录结构
+            mkdir -p package/luci-app-openclash/root
+            mkdir -p package/luci-app-openclash/luasrc
+            
+            # 复制文件
+            cp -rf /tmp/openclash_temp/usr/lib/lua/luci/* package/luci-app-openclash/luasrc/ 2>/dev/null || true
+            cp -rf /tmp/openclash_temp/etc/* package/luci-app-openclash/root/ 2>/dev/null || true
+            cp -rf /tmp/openclash_temp/usr/share/* package/luci-app-openclash/root/usr/share/ 2>/dev/null || true
+            
+            # 创建 Makefile
+            cat > package/luci-app-openclash/Makefile << 'EOF'
+include $(TOPDIR)/rules.mk
+
+LUCI_TITLE:=OpenClash for OpenWrt
+LUCI_DEPENDS:=+coreutils +coreutils-nohup +bash +wget +ca-certificates +libustream-openssl +curl +jsonfilter +ca-bundle +kmod-tun
+LUCI_PKGARCH:=all
+
+include ../../luci.mk
+
+# call BuildPackage - OpenWrt buildroot signature
+EOF
+            
+            echo "✓ OpenClash v${OPENCLASH_VERSION} 源码安装成功"
+            
+            # 记录版本信息
+            mkdir -p files/etc/openclash
+            echo "Client Version: v${OPENCLASH_VERSION}" > files/etc/openclash/version
+            echo "Build Date: $(date '+%Y-%m-%d %H:%M:%S')" >> files/etc/openclash/version
+            echo "Download URL: $OPENCLASH_DOWNLOAD_URL" >> files/etc/openclash/version
+        else
+            echo "✗ OpenClash IPK 解压失败"
+        fi
+        
+        cd "$HOME"
+        rm -rf /tmp/openclash_temp
+    else
+        echo "✗ OpenClash IPK 下载失败，尝试使用 git clone 备用方案"
+        # 备用方案：从 GitHub 克隆最新源码
+        rm -rf package/luci-app-openclash
+        git clone https://github.com/vernesong/OpenClash.git package/luci-app-openclash
+        if [ $? -eq 0 ]; then
+            echo "✓ OpenClash 源码克隆成功（备用方案）"
+            cd package/luci-app-openclash
+            GIT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+            cd ../..
+            echo "OpenClash Git 版本: $GIT_VERSION"
+        else
+            echo "✗ OpenClash 源码获取失败"
+        fi
+    fi
 else
-    echo "✗ OpenClash 源码下载失败"
+    echo "✗ 获取 OpenClash 版本失败，使用 git clone 方案"
+    rm -rf package/luci-app-openclash
+    git clone https://github.com/vernesong/OpenClash.git package/luci-app-openclash
+    if [ $? -eq 0 ]; then
+        echo "✓ OpenClash 源码克隆成功"
+        cd package/luci-app-openclash
+        GIT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+        cd ../..
+        echo "OpenClash Git 版本: $GIT_VERSION"
+    fi
 fi
 
 # 删除其他可能冲突的包（但保留 openclash）
@@ -467,6 +543,15 @@ if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
     echo "检测到 OpenClash 已启用，开始下载最新内核..."
     mkdir -p files/etc/openclash/core
     
+    # 获取最新内核版本信息
+    echo "正在获取 OpenClash 内核版本..."
+    CORE_VERSION_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/core_version"
+    CORE_DEV_VERSION=$(curl -s $CORE_VERSION_URL | grep "dev" | head -n1 | awk -F ':' '{print $2}' | tr -d ' ')
+    CORE_META_VERSION=$(curl -s $CORE_VERSION_URL | grep "meta" | head -n1 | awk -F ':' '{print $2}' | tr -d ' ')
+    
+    echo "Dev 内核版本: $CORE_DEV_VERSION"
+    echo "Meta 内核版本: $CORE_META_VERSION"
+    
     # 下载 Meta 内核（推荐）
     arch="amd64"   # 目标为 x86_64
     echo "下载 OpenClash Meta 内核..."
@@ -481,7 +566,7 @@ if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
             echo "✓ OpenClash Meta 内核配置成功"
             
             # 获取内核版本信息
-            META_VERSION=$(files/etc/openclash/core/clash_meta -v 2>/dev/null | head -n1 || echo "unknown")
+            META_VERSION=$(files/etc/openclash/core/clash_meta -v 2>/dev/null | head -n1 || echo "$CORE_META_VERSION")
             echo "Meta 内核版本: $META_VERSION"
         else
             echo "✗ OpenClash Meta 内核解压失败"
@@ -530,28 +615,31 @@ else
 fi
 
 # =======================================================
-# 确保 OpenClash LuCI 客户端是最新版本
+# 确保 OpenClash LuCI 客户端是最新版本（记录版本信息）
 # =======================================================
 if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
-    echo "=== 验证 OpenClash LuCI 客户端版本 ==="
+    echo "=== OpenClash 版本信息 ==="
     
-    # 检查 package 目录中的 OpenClash 版本
-    if [ -d "package/luci-app-openclash" ]; then
-        cd package/luci-app-openclash
-        CLIENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
-        CLIENT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-        cd ../..
-        echo "OpenClash LuCI 客户端版本: $CLIENT_VERSION"
-        echo "OpenClash LuCI 客户端 Commit: $CLIENT_COMMIT"
-        
-        # 写入版本信息到固件
-        mkdir -p files/etc/openclash
-        echo "Client Version: $CLIENT_VERSION" > files/etc/openclash/version
-        echo "Client Commit: $CLIENT_COMMIT" >> files/etc/openclash/version
+    # 写入版本信息到固件
+    mkdir -p files/etc/openclash
+    
+    if [ -n "$OPENCLASH_VERSION" ]; then
+        echo "OpenClash Client Version: v${OPENCLASH_VERSION}" > files/etc/openclash/version
+        echo "OpenClash Dev Core: ${CORE_DEV_VERSION:-unknown}" >> files/etc/openclash/version
+        echo "OpenClash Meta Core: ${CORE_META_VERSION:-unknown}" >> files/etc/openclash/version
         echo "Build Date: $(date '+%Y-%m-%d %H:%M:%S')" >> files/etc/openclash/version
+        echo "Download Source: https://github.com/vernesong/OpenClash/releases/tag/v${OPENCLASH_VERSION}" >> files/etc/openclash/version
+        
+        echo "✓ OpenClash 客户端版本: v${OPENCLASH_VERSION}"
+        echo "✓ OpenClash Dev 内核版本: ${CORE_DEV_VERSION:-unknown}"
+        echo "✓ OpenClash Meta 内核版本: ${CORE_META_VERSION:-unknown}"
     else
-        echo "警告: OpenClash 客户端源码目录不存在"
+        echo "OpenClash Client Version: git-latest" > files/etc/openclash/version
+        echo "Build Date: $(date '+%Y-%m-%d %H:%M:%S')" >> files/etc/openclash/version
+        echo "✓ OpenClash 使用 git 最新源码"
     fi
+    
+    cat files/etc/openclash/version
 fi
 
 # =======================================================
