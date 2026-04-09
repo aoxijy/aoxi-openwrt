@@ -537,28 +537,53 @@ else
 fi
 
 # =======================================================
-# OpenClash 内核下载（在 .config 生成之后，根据实际启用状态）
+# OpenClash 内核下载（修正后的正确地址）
 # =======================================================
 if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
     echo "检测到 OpenClash 已启用，开始下载最新内核..."
     mkdir -p files/etc/openclash/core
     
     # 获取最新内核版本信息
-    echo "正在获取 OpenClash 内核版本..."
+    echo "正在获取 OpenClash 内核版本信息..."
+    # 获取内核版本文件
     CORE_VERSION_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/core_version"
-    CORE_DEV_VERSION=$(curl -s $CORE_VERSION_URL | grep "dev" | head -n1 | awk -F ':' '{print $2}' | tr -d ' ')
-    CORE_META_VERSION=$(curl -s $CORE_VERSION_URL | grep "meta" | head -n1 | awk -F ':' '{print $2}' | tr -d ' ')
     
-    echo "Dev 内核版本: $CORE_DEV_VERSION"
-    echo "Meta 内核版本: $CORE_META_VERSION"
+    if command -v curl &> /dev/null; then
+        CORE_VERSION_INFO=$(curl -s $CORE_VERSION_URL)
+    else
+        CORE_VERSION_INFO=$(wget -qO- $CORE_VERSION_URL)
+    fi
+    
+    if [ -n "$CORE_VERSION_INFO" ]; then
+        # 提取 dev 和 meta 版本
+        CORE_DEV_VERSION=$(echo "$CORE_VERSION_INFO" | grep "^dev" | cut -d':' -f2 | tr -d ' ')
+        CORE_META_VERSION=$(echo "$CORE_VERSION_INFO" | grep "^meta" | cut -d':' -f2 | tr -d ' ')
+        echo "Dev 内核最新版本: $CORE_DEV_VERSION"
+        echo "Meta 内核最新版本: $CORE_META_VERSION"
+    else
+        echo "⚠ 无法获取内核版本信息，将下载最新版本"
+        CORE_DEV_VERSION="latest"
+        CORE_META_VERSION="latest"
+    fi
+    
+    arch="amd64"   # 目标为 x86_64
     
     # 下载 Meta 内核（推荐）
-    arch="amd64"   # 目标为 x86_64
+    echo "========================================="
     echo "下载 OpenClash Meta 内核..."
+    echo "目标架构: $arch"
+    # 修正后的 Meta 内核下载地址
     META_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-${arch}.tar.gz"
-    wget -q "$META_URL" -O /tmp/clash-meta.tar.gz
+    echo "下载地址: $META_URL"
+    
+    if command -v curl &> /dev/null; then
+        curl -L "$META_URL" -o /tmp/clash-meta.tar.gz
+    else
+        wget -q "$META_URL" -O /tmp/clash-meta.tar.gz
+    fi
     
     if [ $? -eq 0 ] && [ -s /tmp/clash-meta.tar.gz ]; then
+        # 解压内核
         tar -xzf /tmp/clash-meta.tar.gz -C files/etc/openclash/core/
         if [ -f files/etc/openclash/core/clash ]; then
             mv files/etc/openclash/core/clash files/etc/openclash/core/clash_meta
@@ -566,17 +591,24 @@ if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
             echo "✓ OpenClash Meta 内核配置成功"
             
             # 获取内核版本信息
-            META_VERSION=$(files/etc/openclash/core/clash_meta -v 2>/dev/null | head -n1 || echo "$CORE_META_VERSION")
-            echo "Meta 内核版本: $META_VERSION"
+            if [ -f files/etc/openclash/core/clash_meta ]; then
+                META_VERSION=$(files/etc/openclash/core/clash_meta -v 2>/dev/null | head -n1 || echo "$CORE_META_VERSION")
+                echo "Meta 内核版本: $META_VERSION"
+            fi
         else
             echo "✗ OpenClash Meta 内核解压失败"
         fi
         rm -f /tmp/clash-meta.tar.gz
     else
-        echo "✗ OpenClash Meta 内核下载失败，尝试备用源..."
-        # 备用下载源
+        echo "✗ OpenClash Meta 内核下载失败"
+        echo "尝试备用下载地址..."
+        # 备用下载源（使用 GitHub 原始文件）
         META_URL_BACKUP="https://github.com/vernesong/OpenClash/raw/core/master/meta/clash-linux-${arch}.tar.gz"
-        wget -q "$META_URL_BACKUP" -O /tmp/clash-meta.tar.gz
+        if command -v curl &> /dev/null; then
+            curl -L "$META_URL_BACKUP" -o /tmp/clash-meta.tar.gz
+        else
+            wget -q "$META_URL_BACKUP" -O /tmp/clash-meta.tar.gz
+        fi
         if [ $? -eq 0 ] && [ -s /tmp/clash-meta.tar.gz ]; then
             tar -xzf /tmp/clash-meta.tar.gz -C files/etc/openclash/core/
             if [ -f files/etc/openclash/core/clash ]; then
@@ -586,27 +618,43 @@ if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
             fi
             rm -f /tmp/clash-meta.tar.gz
         else
-            echo "✗ OpenClash Meta 内核下载失败"
+            echo "✗ OpenClash Meta 内核下载失败（备用源）"
         fi
     fi
     
     # 下载 Dev 内核（可选，作为备选）
+    echo "========================================="
     echo "下载 OpenClash Dev 内核..."
     DEV_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/dev/clash-linux-${arch}.tar.gz"
-    wget -q "$DEV_URL" -O /tmp/clash-dev.tar.gz
+    echo "下载地址: $DEV_URL"
+    
+    if command -v curl &> /dev/null; then
+        curl -L "$DEV_URL" -o /tmp/clash-dev.tar.gz
+    else
+        wget -q "$DEV_URL" -O /tmp/clash-dev.tar.gz
+    fi
     
     if [ $? -eq 0 ] && [ -s /tmp/clash-dev.tar.gz ]; then
         tar -xzf /tmp/clash-dev.tar.gz -C files/etc/openclash/core/
         if [ -f files/etc/openclash/core/clash ]; then
             chmod +x files/etc/openclash/core/clash
             echo "✓ OpenClash Dev 内核配置成功"
+            
+            # 获取内核版本信息
+            if [ -f files/etc/openclash/core/clash ]; then
+                DEV_VERSION=$(files/etc/openclash/core/clash -v 2>/dev/null | head -n1 || echo "$CORE_DEV_VERSION")
+                echo "Dev 内核版本: $DEV_VERSION"
+            fi
+        else
+            echo "✗ OpenClash Dev 内核解压失败"
         fi
         rm -f /tmp/clash-dev.tar.gz
     else
-        echo "✗ OpenClash Dev 内核下载失败（非关键错误）"
+        echo "✗ OpenClash Dev 内核下载失败（非关键错误，可继续编译）"
     fi
     
     # 显示内核文件
+    echo "========================================="
     echo "已安装的内核文件："
     ls -lh files/etc/openclash/core/ 2>/dev/null || echo "无内核文件"
 else
@@ -618,7 +666,8 @@ fi
 # 确保 OpenClash LuCI 客户端是最新版本（记录版本信息）
 # =======================================================
 if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
-    echo "=== OpenClash 版本信息 ==="
+    echo "========================================="
+    echo "OpenClash 版本信息汇总："
     
     # 写入版本信息到固件
     mkdir -p files/etc/openclash
@@ -639,7 +688,9 @@ if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
         echo "✓ OpenClash 使用 git 最新源码"
     fi
     
+    echo "========================================="
     cat files/etc/openclash/version
+    echo "========================================="
 fi
 
 # =======================================================
