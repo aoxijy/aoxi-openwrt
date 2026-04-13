@@ -32,7 +32,6 @@ on:
     - cron: 0 17 4,9,14,19,24,31 * *
 
 env: 
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # 提前适配 Node.js 24
   TZ: Asia/Shanghai
   MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -87,7 +86,7 @@ jobs:
         echo "是否清理缓存: ${CLEAN_CACHE}"
 
     - name: Checkout 仓库
-      uses: actions/checkout@v5  # 升级到 v5
+      uses: actions/checkout@v4
 
     - name: 检测脚本设置
       run: |
@@ -393,21 +392,21 @@ jobs:
 
     - name: 上传固件文件
       if: steps.compile.outcome == 'success' && env.UPLOAD_FIRMWARE == 'true'
-      uses: actions/upload-artifact@v5  # 升级到 v5
+      uses: actions/upload-artifact@v4
       with:
         name: ${{matrix.target}}_OpenWrt_firmware_${{ env.FILE_TIME }}
         path: ./artifact/firmware/
 
     - name: 上传编译日志
       if: failure()
-      uses: actions/upload-artifact@v5  # 升级到 v5
+      uses: actions/upload-artifact@v4
       with:
         name: build_log_${{ github.run_id }}
         path: openwrt/build.log
 
     - name: 上传固件信息
       if: steps.compile.outcome == 'success' && env.UPLOAD_CONFIG == 'true'
-      uses: actions/upload-artifact@v5  # 升级到 v5
+      uses: actions/upload-artifact@v4
       with:
         name: ${{matrix.target}}_OpenWrt_buildinfo_${{ env.FILE_TIME }}
         path: ./artifact/buildinfo/
