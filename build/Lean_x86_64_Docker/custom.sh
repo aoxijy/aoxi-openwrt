@@ -125,7 +125,7 @@ uci set dhcp.@dnsmasq[0].filter_aaaa='0'                     # 禁止解析 IPv6
 uci set firewall.@defaults[0].syn_flood='0'                  # 禁用 SYN-flood 防御
 uci set firewall.@defaults[0].flow_offloading='0'           # 禁用基于软件的NAT分载
 uci set firewall.@defaults[0].flow_offloading_hw='0'       # 禁用基于硬件的NAT分载
-uci set firewall.@defaults[0].fullcone='0'                   # 禁用 FullCone NAT
+uci set firewall.@defaults[0].fullcone='1'                   # 启用 FullCone NAT (NAT1)
 uci set firewall.@defaults[0].fullcone6='0'                  # 禁用 FullCone NAT6
 uci set firewall.@zone[0].masq='1'                             # 启用LAN口 IP 动态伪装
 
@@ -276,6 +276,8 @@ EOF
 # Turbo ACC 网络加速:
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-turboacc=y
+CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_NFT_FULLCONE=y
+CONFIG_PACKAGE_kmod-nft-fullcone=y
 EOF
 
 # 常用LuCI插件:
@@ -341,6 +343,9 @@ EOF
 # 常用软件包:
 cat >> .config <<EOF
 CONFIG_PACKAGE_firewall4=y
+# CONFIG_PACKAGE_firewall is not set
+CONFIG_PACKAGE_iptables-nft=y
+CONFIG_PACKAGE_ip6tables-nft=y
 CONFIG_PACKAGE_curl=y
 CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_nano=y
