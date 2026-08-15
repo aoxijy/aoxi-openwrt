@@ -16,6 +16,21 @@ git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-pack
 ./scripts/feeds clean
 ./scripts/feeds update -a && ./scripts/feeds install -a -f
 
+# 修复 LEDE 源码: iptables-nft 依赖未定义的 Kconfig 符号 IPTABLES_NFTABLES,
+# 导致 make defconfig 时 CONFIG_PACKAGE_iptables-nft 被静默丢弃(固件只有 legacy iptables),
+# dockerd 写入 legacy 规则与 fw4(nftables) 混合, LuCI 报"检测到旧版规则"警告。
+# 这里强制开启 nftables 支持并移除未定义符号依赖, 让 iptables-nft 正常编译。
+sed -i 's/DEPENDS:=iptables @IPTABLES_NFTABLES +libxtables-nft/DEPENDS:=iptables +libxtables-nft/' package/network/utils/iptables/Makefile
+sed -i 's/DEPENDS:=ip6tables @IPTABLES_NFTABLES +libxtables-nft/DEPENDS:=ip6tables +libxtables-nft/' package/network/utils/iptables/Makefile
+sed -i 's/+IPTABLES_NFTABLES:libnftnl/+libnftnl/' package/network/utils/iptables/Makefile
+sed -i 's/\$(if \$(CONFIG_IPTABLES_NFTABLES),,--disable-nftables)/--enable-nftables/' package/network/utils/iptables/Makefile
+# 校验补丁是否生效
+if grep -q "@IPTABLES_NFTABLES\|--disable-nftables" package/network/utils/iptables/Makefile; then
+    echo "警告: iptables-nft 源码补丁未完全生效, 请检查 package/network/utils/iptables/Makefile"
+else
+    echo "iptables-nft 源码补丁已生效"
+fi
+
 # 删除部分默认包
 rm -rf feeds/luci/applications/luci-app-qbittorrent
 rm -rf feeds/luci/applications/luci-app-openclash
@@ -70,6 +85,33 @@ EOF
 
 # 设置预安装脚本权限
 chmod +x files/etc/uci-defaults/98-pre_install
+
+# 创建首次启动脚本: 统一 iptables/ip6tables 到 nftables 后端
+# 背景: 系统防火墙 fw4 使用 nftables, 而 dockerd 调用 iptables 默认走 legacy 后端,
+#       产生 legacy+nft 混合规则, LuCI 状态->防火墙 报"检测到旧版规则"警告。
+# 方案: 1) iptables* 命令重定向到 xtables-nft-multi(nft 后端), 规则全部进 nftables
+#       2) 清空 legacy 表并保留 iptables-legacy-save, 供 LuCI 检测(空表不报警)
+# 执行时机: uci-defaults(S95done) 先于 dockerd(S99) 启动, 保证 dockerd 直接走 nft 后端
+cat > files/etc/uci-defaults/99-iptables-nft << 'EOF'
+#!/bin/sh
+if [ -x /usr/sbin/xtables-nft-multi ]; then
+    for c in iptables iptables-save iptables-restore ip6tables ip6tables-save ip6tables-restore; do
+        [ -e "/usr/sbin/$c" ] && ln -sf xtables-nft-multi "/usr/sbin/$c"
+    done
+    if [ -x /usr/sbin/xtables-legacy-multi ]; then
+        for t in raw mangle nat filter; do
+            /usr/sbin/xtables-legacy-multi iptables -t "$t" -F 2>/dev/null
+            /usr/sbin/xtables-legacy-multi ip6tables -t "$t" -F 2>/dev/null
+        done
+        /usr/sbin/xtables-legacy-multi iptables -X 2>/dev/null
+        /usr/sbin/xtables-legacy-multi ip6tables -X 2>/dev/null
+        ln -sf xtables-legacy-multi /usr/sbin/iptables-legacy-save
+        ln -sf xtables-legacy-multi /usr/sbin/ip6tables-legacy-save
+    fi
+fi
+exit 0
+EOF
+chmod +x files/etc/uci-defaults/99-iptables-nft
 
 # 下载预安装的IPK包
 echo "下载预安装IPK包..."
