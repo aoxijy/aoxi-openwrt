@@ -32,14 +32,20 @@ else
 fi
 
 # 开启内核 NFT_COMPAT(xtables 兼容层): iptables-nft 处理 addrtype 等 xtables 扩展时必需。
-# LEDE 内核默认未开启该选项, 且 release feed 无 kmod-nft-compat 包, 故直接编译进内核(=y)。
-for cf in target/linux/generic/config-6.*; do
-    if [ -f "$cf" ]; then
-        sed -i '/^# CONFIG_NFT_COMPAT is not set/d; s/^CONFIG_NFT_COMPAT=.*//' "$cf"
-        echo "CONFIG_NFT_COMPAT=y" >> "$cf"
-        echo "已为 $cf 开启 CONFIG_NFT_COMPAT=y"
-    fi
-done
+# LEDE 在 kmod-nft-core 里强制 CONFIG_NFT_COMPAT=n, 且缺失 NFT_COMPAT-m/KCONFIG_NFT_COMPAT
+# 变量定义, 导致 nft_compat.ko 永远编译不出来、kmod-nft-compat 包为空壳。
+# 修复: 移除强制禁用 + 补变量定义 + 修正包依赖(官方 kmod-nf-ipt 在 LEDE 中为 kmod-ipt-core)。
+sed -i '/^[[:space:]]*CONFIG_NFT_COMPAT=n[[:space:]]*\\$/d' package/kernel/linux/modules/netfilter.mk
+sed -i 's/DEPENDS:=+kmod-nft-core +kmod-nf-ipt/DEPENDS:=+kmod-nft-core +kmod-ipt-core/' package/kernel/linux/modules/netfilter.mk
+if ! grep -q "^NFT_COMPAT-m" package/kernel/linux/modules/netfilter.mk; then
+    sed -i '/^define KernelPackage\/nft-compat$/i NFT_COMPAT-m = netfilter/nft_compat\nKCONFIG_NFT_COMPAT = CONFIG_NFT_COMPAT' package/kernel/linux/modules/netfilter.mk
+fi
+# 校验补丁是否生效
+if grep -q "CONFIG_NFT_COMPAT=n" package/kernel/linux/modules/netfilter.mk; then
+    echo "警告: NFT_COMPAT 补丁未完全生效, 请检查 package/kernel/linux/modules/netfilter.mk"
+else
+    echo "NFT_COMPAT 补丁已生效(kmod-nft-compat 可用)"
+fi
 
 # 删除部分默认包
 rm -rf feeds/luci/applications/luci-app-qbittorrent
@@ -395,6 +401,7 @@ EOF
 # 常用软件包:
 cat >> .config <<EOF
 CONFIG_PACKAGE_firewall4=y
+CONFIG_PACKAGE_kmod-nft-compat=y
 # CONFIG_PACKAGE_firewall is not set
 CONFIG_PACKAGE_iptables-nft=y
 CONFIG_PACKAGE_ip6tables-nft=y
