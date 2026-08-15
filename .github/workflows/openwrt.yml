@@ -369,19 +369,31 @@ jobs:
         mkdir -p ./artifact/buildinfo
         cp -rf openwrt/.config ./artifact/buildinfo/${{matrix.target}}.config || true
         rm -rf $(find openwrt/bin/targets/ -type d -name "packages")
-        cp -rf $(find openwrt/bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/ || true        
-        
-        # 复制 squashfs 和 ext4 格式的固件（包含 efi 的）
+        cp -rf $(find openwrt/bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/ || true
+
+        # 诊断1：实际生效的镜像相关配置
+        echo "=== .config 镜像选项 ==="
+        grep -E "TARGET_ROOTFS_SQUASHFS|TARGET_ROOTFS_EXT4FS|TARGET_EFI_IMAGES|TARGET_ROOTFS_TARGZ|TARGET_IMAGES_GZIP|TARGET_IMAGES_PAD|TARGET_ROOTFS_PARTSIZE|TARGET_EXT4_ROOTFS_PARTSIZE" openwrt/.config || echo "(未找到相关配置)"
+
+        # 诊断2：bin/targets 实际产物清单
+        echo "=== bin/targets 实际产物清单 ==="
+        find openwrt/bin/targets/ -type f | sort
+
+        # 诊断3：build.log 里镜像/错误相关
+        echo "=== build.log 中 image/error 相关 ==="
+        grep -iE "image|error|fail" openwrt/build.log 2>/dev/null | tail -30 || echo "(无 build.log)"
+
+        # 复制固件文件（匹配所有镜像格式，排除 ipk 包）
         echo "=== 正在复制固件文件 ==="
-        find openwrt/bin/targets/ -type f \( -name "*squashfs*efi*img*" -o -name "*ext4*efi*img*" \) 2>/dev/null | while read file; do
+        find openwrt/bin/targets/ -type f \( -name "*.img" -o -name "*.img.gz" -o -name "*.tar.gz" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.vhdx" \) 2>/dev/null | while read file; do
           echo "复制: $(basename "$file")"
           cp "$file" ./artifact/firmware/
         done
-        
+
         # 显示已复制的文件
         echo "=== 已复制的固件 ==="
         ls -lh ./artifact/firmware/
-        
+
         echo "编译完成时间..."
         START_SECONDS=${{ env.START_SECONDS }}
         END_TIME=`date +'%Y-%m-%d %H:%M:%S'`
