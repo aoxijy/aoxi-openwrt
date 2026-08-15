@@ -322,9 +322,19 @@ jobs:
       run: |
         cd openwrt && make download -j4
 
+    - name: 修复 dockerd 编译环境
+      run: |
+        # GitHub runner 预装了 /usr/local/bin/runc，会触发 docker hack/make/binary-daemon 脚本的
+        # copy_binaries 逻辑（复制 containerd/docker-init/rootlesskit 等嵌套可执行文件），
+        # 但 runner 上没有这些二进制，command -v 返回空导致 cp: cannot stat '' 编译失败。
+        # 删除 runc 让脚本直接 return，跳过复制步骤。
+        sudo rm -f /usr/local/bin/runc
+        echo "已删除 /usr/local/bin/runc，跳过 docker 嵌套二进制复制"
+
     - name: 开始编译固件
       id: compile
       run: |
+        set -o pipefail
         cd openwrt
         # 清除 target/linux 安装标记，强制重新生成固件镜像（防止缓存导致 Image/Build 被跳过）
         find build_dir/target-*/linux-* -maxdepth 1 -name ".stamp_installed" -delete 2>/dev/null || true
