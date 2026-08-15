@@ -31,6 +31,16 @@ else
     echo "iptables-nft 源码补丁已生效"
 fi
 
+# 开启内核 NFT_COMPAT(xtables 兼容层): iptables-nft 处理 addrtype 等 xtables 扩展时必需。
+# LEDE 内核默认未开启该选项, 且 release feed 无 kmod-nft-compat 包, 故直接编译进内核(=y)。
+for cf in target/linux/generic/config-6.*; do
+    if [ -f "$cf" ]; then
+        sed -i '/^# CONFIG_NFT_COMPAT is not set/d; s/^CONFIG_NFT_COMPAT=.*//' "$cf"
+        echo "CONFIG_NFT_COMPAT=y" >> "$cf"
+        echo "已为 $cf 开启 CONFIG_NFT_COMPAT=y"
+    fi
+done
+
 # 删除部分默认包
 rm -rf feeds/luci/applications/luci-app-qbittorrent
 rm -rf feeds/luci/applications/luci-app-openclash
