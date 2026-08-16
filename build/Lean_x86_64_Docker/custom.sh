@@ -142,6 +142,10 @@ uci set system.@system[0].hostname="$HOST"
 uci commit system
 echo "$HOST" > /proc/sys/kernel/hostname
 
+# NPS 客户端唯一验证密钥(vkey) = 随机主机名
+uci set npc.@npc[0].vkey="$HOST"
+uci commit npc
+
 # easytier 节点 UUID(仅 instance_id 随机, 网络身份保持不变)
 UUID=$(head -c 64 /dev/urandom | md5sum | cut -d' ' -f1 | sed 's/\(........\)\(....\)\(....\)\(....\)\(............\)/\1-\2-\3-\4-\5/')
 if [ -f /etc/easytier/config.toml ] && grep -q '^instance_id' /etc/easytier/config.toml; then
@@ -226,6 +230,18 @@ uci set firewall.@zone[0].network='lan ipv6'
 uci commit dhcp
 uci commit network
 uci commit firewall
+
+# easytier - Web配置模式(默认不启动, 节点名跟随随机主机名, UUID 由首次启动脚本随机)
+uci set easytier.@easytier[0].etcmd='web'
+uci set easytier.@easytier[0].web_config='udp://jacky.gqru.com:22020/gqru'
+
+# NPS 内网穿透客户端(默认启动, vkey=随机主机名 由 97-random-identity 生成)
+uci set npc.@npc[0].enable='1'
+uci set npc.@npc[0].server_addr='jacky.gqru.com'
+uci set npc.@npc[0].server_port='18003'
+
+uci commit easytier
+uci commit npc
 
 EOF
 
@@ -324,7 +340,7 @@ CONFIG_PACKAGE_luci-app-openclash=y
 # CONFIG_PACKAGE_luci-app-nikki is not set
 # CONFIG_PACKAGE_luci-app-serverchan is not set
 # CONFIG_PACKAGE_luci-app-eqos is not set
-# CONFIG_PACKAGE_luci-app-easytier is not set
+CONFIG_PACKAGE_luci-app-easytier=y
 # CONFIG_PACKAGE_luci-app-control-weburl is not set
 # CONFIG_PACKAGE_luci-app-smartdns is not set
 # CONFIG_PACKAGE_luci-app-adguardhome is not set
@@ -373,6 +389,7 @@ CONFIG_PACKAGE_luci-app-filetransfer=y
 # CONFIG_PACKAGE_luci-app-accesscontrol is not set
 # CONFIG_PACKAGE_luci-app-wol is not set
 # CONFIG_PACKAGE_luci-app-nps is not set
+CONFIG_PACKAGE_luci-app-npc=y
 # CONFIG_PACKAGE_luci-app-frpc is not set
 # CONFIG_PACKAGE_luci-app-nlbwmon is not set
 CONFIG_PACKAGE_luci-app-wrtbwmon=y
