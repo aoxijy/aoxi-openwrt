@@ -235,14 +235,11 @@ uci commit dhcp
 uci commit network
 uci commit firewall
 
-# easytier - Web配置模式(默认不启动, 节点名跟随随机主机名, UUID 由首次启动脚本随机)
+# easytier - Web配置模式(默认不启动, 服务器地址不预置防泄露, 由用户在 LuCI 填写)
 uci set easytier.@easytier[0].etcmd='web'
-uci set easytier.@easytier[0].web_config='udp://jacky.gqru.com:22020/gqru'
 
-# NPS 内网穿透客户端(默认启动, vkey=随机主机名 由 97-random-identity 生成)
-uci set npc.@npc[0].enable='1'
-uci set npc.@npc[0].server_addr='jacky.gqru.com'
-uci set npc.@npc[0].server_port='18003'
+# NPS 内网穿透客户端(默认关闭, vkey=随机主机名 由首次启动脚本生成, 服务器地址不预置防泄露)
+uci set npc.@npc[0].enable='0'
 
 uci commit easytier
 uci commit npc
