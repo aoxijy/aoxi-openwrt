@@ -129,31 +129,35 @@ exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-iptables-nft
 
-# 创建首次启动脚本: 随机生成主机名 + easytier instance_id(UUID)
-# 背景: 同一固件刷多台设备后, 主机名(GanQuanRu)和 easytier UUID 完全相同,
-#       easytier 节点会因相同 instance_id 冲突, 主机名无法区分设备。
-# 方案: 首次启动时用 /dev/urandom 生成随机值写入配置(刷机安装后每次不同)。
-#       network_name/network_secret 保持不动(多设备组网需要共享同一网络身份)。
-cat > files/etc/uci-defaults/97-random-identity << 'EOF'
+# 创建首次启动脚本: 随机生成主机名 + npc vkey + easytier UUID
+# 注意: 不能放 /etc/uci-defaults(S10boot 内, 先于 config_generate 执行),
+#       config_generate 会重建 system 配置覆盖 hostname; 且 uci-defaults 阶段
+#       pre_install 的 easytier ipk 尚未安装, config.toml 不存在。
+# 方案: 放 /etc/rc.local(S95done 执行, 晚于 config_generate 与 pre_install),
+#       加首次启动标记, 仅刷机安装后第一次开机执行。
+cat > files/etc/rc.local << 'EOF'
 #!/bin/sh
-# 随机主机名 GQRU-XXXX
-HOST="GQRU-$(head -c 8 /dev/urandom | md5sum | cut -c1-4 | tr 'a-f' 'A-F')"
-uci set system.@system[0].hostname="$HOST"
-uci commit system
-echo "$HOST" > /proc/sys/kernel/hostname
+# 首次启动生成随机身份: 主机名 GQRU-XXXX + npc vkey + easytier instance_id(UUID)
+if [ ! -f /etc/.identity-generated ]; then
+    HOST="GQRU-$(head -c 8 /dev/urandom | md5sum | cut -c1-4 | tr 'a-f' 'A-F')"
+    uci set system.@system[0].hostname="$HOST"
+    uci commit system
+    echo "$HOST" > /proc/sys/kernel/hostname
 
-# NPS 客户端唯一验证密钥(vkey) = 随机主机名
-uci set npc.@npc[0].vkey="$HOST"
-uci commit npc
+    # NPS 客户端唯一验证密钥(vkey) = 随机主机名
+    uci set npc.@npc[0].vkey="$HOST"
+    uci commit npc
 
-# easytier 节点 UUID(仅 instance_id 随机, 网络身份保持不变)
-UUID=$(head -c 64 /dev/urandom | md5sum | cut -d' ' -f1 | sed 's/\(........\)\(....\)\(....\)\(....\)\(............\)/\1-\2-\3-\4-\5/')
-if [ -f /etc/easytier/config.toml ] && grep -q '^instance_id' /etc/easytier/config.toml; then
-    sed -i "s/^instance_id = .*/instance_id = \"$UUID\"/" /etc/easytier/config.toml
+    # easytier 节点 UUID(仅 instance_id 随机, 网络身份保持不变)
+    UUID=$(head -c 64 /dev/urandom | md5sum | cut -d' ' -f1 | sed 's/\(........\)\(....\)\(....\)\(....\)\(............\)/\1-\2-\3-\4-\5/')
+    if [ -f /etc/easytier/config.toml ] && grep -q '^instance_id' /etc/easytier/config.toml; then
+        sed -i "s/^instance_id = .*/instance_id = \"$UUID\"/" /etc/easytier/config.toml
+    fi
+    touch /etc/.identity-generated
 fi
 exit 0
 EOF
-chmod +x files/etc/uci-defaults/97-random-identity
+chmod +x files/etc/rc.local
 
 # 下载预安装的IPK包
 echo "下载预安装IPK包..."
@@ -340,7 +344,7 @@ CONFIG_PACKAGE_luci-app-openclash=y
 # CONFIG_PACKAGE_luci-app-nikki is not set
 # CONFIG_PACKAGE_luci-app-serverchan is not set
 # CONFIG_PACKAGE_luci-app-eqos is not set
-CONFIG_PACKAGE_luci-app-easytier=y
+# CONFIG_PACKAGE_luci-app-easytier is not set
 # CONFIG_PACKAGE_luci-app-control-weburl is not set
 # CONFIG_PACKAGE_luci-app-smartdns is not set
 # CONFIG_PACKAGE_luci-app-adguardhome is not set
@@ -389,7 +393,6 @@ CONFIG_PACKAGE_luci-app-filetransfer=y
 # CONFIG_PACKAGE_luci-app-accesscontrol is not set
 # CONFIG_PACKAGE_luci-app-wol is not set
 # CONFIG_PACKAGE_luci-app-nps is not set
-CONFIG_PACKAGE_luci-app-npc=y
 # CONFIG_PACKAGE_luci-app-frpc is not set
 # CONFIG_PACKAGE_luci-app-nlbwmon is not set
 CONFIG_PACKAGE_luci-app-wrtbwmon=y
