@@ -129,6 +129,28 @@ exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-iptables-nft
 
+# 创建首次启动脚本: 随机生成主机名 + easytier instance_id(UUID)
+# 背景: 同一固件刷多台设备后, 主机名(GanQuanRu)和 easytier UUID 完全相同,
+#       easytier 节点会因相同 instance_id 冲突, 主机名无法区分设备。
+# 方案: 首次启动时用 /dev/urandom 生成随机值写入配置(刷机安装后每次不同)。
+#       network_name/network_secret 保持不动(多设备组网需要共享同一网络身份)。
+cat > files/etc/uci-defaults/97-random-identity << 'EOF'
+#!/bin/sh
+# 随机主机名 GQRU-XXXX
+HOST="GQRU-$(head -c 8 /dev/urandom | md5sum | cut -c1-4 | tr 'a-f' 'A-F')"
+uci set system.@system[0].hostname="$HOST"
+uci commit system
+echo "$HOST" > /proc/sys/kernel/hostname
+
+# easytier 节点 UUID(仅 instance_id 随机, 网络身份保持不变)
+UUID=$(head -c 64 /dev/urandom | md5sum | cut -d' ' -f1 | sed 's/\(........\)\(....\)\(....\)\(....\)\(............\)/\1-\2-\3-\4-\5/')
+if [ -f /etc/easytier/config.toml ] && grep -q '^instance_id' /etc/easytier/config.toml; then
+    sed -i "s/^instance_id = .*/instance_id = \"$UUID\"/" /etc/easytier/config.toml
+fi
+exit 0
+EOF
+chmod +x files/etc/uci-defaults/97-random-identity
+
 # 下载预安装的IPK包
 echo "下载预安装IPK包..."
 # 示例：下载npc和luci-app-npc（请替换为真实可用的URL）
