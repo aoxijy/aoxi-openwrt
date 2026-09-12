@@ -10,7 +10,15 @@ on:
       Lean_x86_64_Docker:
         description: '编译 Lean_x86_64_Docker'
         type: boolean
-        default: false    
+        default: false
+      Lean_x86_64_OpenBox:
+        description: '编译 Lean_x86_64_OpenBox（无 Docker、无 OpenClash）'
+        type: boolean
+        default: false
+      Lean_x86_64_OpenBox_Docker:
+        description: '编译 Lean_x86_64_OpenBox_Docker（无 OpenClash）'
+        type: boolean
+        default: false
       CACHE_BUILD:
         description: '缓存加速'
         required: false
@@ -50,11 +58,13 @@ jobs:
           MODELS=()
           # 定时触发编译全部
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            MODELS=("Lean_x86_64" "Lean_x86_64_Docker")
+            MODELS=("Lean_x86_64" "Lean_x86_64_Docker" "Lean_x86_64_OpenBox" "Lean_x86_64_OpenBox_Docker")
           else
             # 手动触发判断
             [ "${{ github.event.inputs.Lean_x86_64 }}" = "true" ] && MODELS+=("Lean_x86_64")
             [ "${{ github.event.inputs.Lean_x86_64_Docker }}" = "true" ] && MODELS+=("Lean_x86_64_Docker")
+            [ "${{ github.event.inputs.Lean_x86_64_OpenBox }}" = "true" ] && MODELS+=("Lean_x86_64_OpenBox")
+            [ "${{ github.event.inputs.Lean_x86_64_OpenBox_Docker }}" = "true" ] && MODELS+=("Lean_x86_64_OpenBox_Docker")
           fi
           
           # 转换为 JSON 数组
@@ -96,6 +106,7 @@ jobs:
         echo "CONFIG_FILE=${CONFIG_FILE}" >> $GITHUB_ENV
         echo "FIRMWARE_MESSAGE=${FIRMWARE_MESSAGE}" >> $GITHUB_ENV
         echo "CUSTOM_SH=${CUSTOM_SH}" >> $GITHUB_ENV
+        echo "INHERIT_FILES=${INHERIT_FILES:-}" >> $GITHUB_ENV
         echo "CACHE_BUILD=${CACHE_BUILD}" >> $GITHUB_ENV
         echo "SSH_ACTIONS=${SSH_ACTIONS}" >> $GITHUB_ENV
         echo "UPLOAD_FIRMWARE=${UPLOAD_FIRMWARE}" >> $GITHUB_ENV
@@ -208,6 +219,13 @@ jobs:
         fi
 
         echo "复制配置文件..."
+        if [ -n "${INHERIT_FILES:-}" ] && [ -d "${GITHUB_WORKSPACE}/openwrt/build/${INHERIT_FILES}/files" ]; then
+          echo "继承 ${INHERIT_FILES} 的 files..."
+          mkdir -p files
+          cp -rf "${GITHUB_WORKSPACE}/openwrt/build/${INHERIT_FILES}/files/"* files/
+          chmod -R 755 files
+        fi
+
         if [ -n "$(ls -A "${WORKPATH}/files" 2>/dev/null)" ]; then
           if [ -d "files" ];then
            cp -rf ${WORKPATH}/files/* files
@@ -227,6 +245,17 @@ jobs:
         fi
 
         make defconfig
+
+        # Open-Box 目标必须在依赖解析后仍完全不含 OpenClash。
+        if [[ "${{ matrix.target }}" == *OpenBox* ]]; then
+          if grep -Eqi '^CONFIG_PACKAGE_.*openclash=y$' .config; then
+            echo "错误: defconfig 后检测到 OpenClash 被启用，拒绝编译 Open-Box 目标。"
+            grep -Ei '^CONFIG_PACKAGE_.*openclash=y$' .config
+            exit 1
+          fi
+          rm -rf files/etc/openclash files/usr/share/openclash files/etc/uci-defaults/*openclash*
+          echo "Open-Box 目标检查通过：OpenClash 未启用且无数据/更新脚本残留。"
+        fi
 
     - name: SSH远程连接服务器
       uses: db-one/debugger-action@main
@@ -323,6 +352,7 @@ jobs:
         cd openwrt && make download -j4
 
     - name: 修复 dockerd 编译环境
+      if: contains(matrix.target, 'Docker')
       run: |
         # GitHub runner 预装了 /usr/local/bin/runc，会触发 docker hack/make/binary-daemon 脚本的
         # copy_binaries 逻辑（复制 containerd/docker-init/rootlesskit 等嵌套可执行文件），
