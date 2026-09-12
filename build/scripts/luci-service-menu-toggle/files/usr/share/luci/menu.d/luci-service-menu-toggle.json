@@ -1,0 +1,14 @@
+{
+	"admin/status/service-menu-toggle": {
+		"action": {
+			"type": "call",
+			"module": "luci.controller.service_menu_toggle",
+			"function": "action_toggle",
+			"post": true
+		},
+		"depends": {
+			"acl": [ "luci-mod-status-index" ]
+		},
+		"firstchild_ineligible": true
+	}
+}

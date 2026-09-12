@@ -16,6 +16,9 @@ git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-pack
 ./scripts/feeds clean
 ./scripts/feeds update -a && ./scripts/feeds install -a -f
 
+# 在“状态 → 概况”底部加入服务菜单显示/隐藏开关（默认隐藏）
+bash build/scripts/luci-service-menu-toggle/install.sh
+
 # 修复 LEDE 源码: iptables-nft 依赖未定义的 Kconfig 符号 IPTABLES_NFTABLES,
 # 导致 make defconfig 时 CONFIG_PACKAGE_iptables-nft 被静默丢弃(固件只有 legacy iptables),
 # dockerd 写入 legacy 规则与 fw4(nftables) 混合, LuCI 报"检测到旧版规则"警告。
