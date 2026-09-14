@@ -49,6 +49,7 @@ for f in \
     files/etc/init.d/jbox \
     files/etc/init.d/jbox-panel \
     files/etc/uci-defaults/96-jbox \
+    files/usr/libexec/jbox-ipv6-lan.sh \
     files/www/luci-static/resources/view/jbox/status.js \
     files/usr/share/luci/menu.d/luci-app-jbox.json \
     files/usr/share/rpcd/acl.d/luci-app-jbox.json; do
@@ -56,9 +57,13 @@ for f in \
 done
 
 test -x "$BUILDROOT/files/etc/init.d/jbox-panel"
+test -x "$BUILDROOT/files/usr/libexec/jbox-ipv6-lan.sh"
 grep -q '^direct$' "$BUILDROOT/files/opt/j-box/data/channel"
 grep -q '/etc/init.d/jbox-panel enable' "$BUILDROOT/files/etc/uci-defaults/96-jbox"
 grep -q '/etc/init.d/jbox-panel start' "$BUILDROOT/files/etc/uci-defaults/96-jbox"
+# 旁路由 IPv6 自检必须挂进 rc.local(开机 network 起来后跑一次)
+grep -q 'jbox-ipv6-lan' "$BUILDROOT/files/etc/uci-defaults/96-jbox"
+grep -q 'rc.local' "$BUILDROOT/files/etc/uci-defaults/96-jbox"
 
 # 损坏发布包必须在 SHA256 校验阶段被拒绝。
 printf 'corrupt' >> "$ASSETS/$ASSET_NAME"

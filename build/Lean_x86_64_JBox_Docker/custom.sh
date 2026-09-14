@@ -204,8 +204,8 @@ uci set network.lan.gateway='172.18.18.2'                     # 旁路由设置 
 uci set network.lan.dns='223.5.5.5 119.29.29.29'            # 旁路由设置 DNS(多个DNS要用空格分开)
 uci set dhcp.lan.ignore='1'                                  # 旁路由关闭DHCP功能
 uci delete network.lan.type                                  # 旁路由桥接模式-禁用
-uci set network.lan.delegate='0'                             # 去掉LAN口使用内置的 IPv6 管理(若用IPV6请把'0'改'1')
-uci set dhcp.@dnsmasq[0].filter_aaaa='0'                     # 禁止解析 IPv6 DNS记录(若用IPV6请把'1'改'0')
+uci set network.lan.delegate='0'                             # 旁路由与上游共用同一个 /64,不向上游要前缀
+uci set dhcp.@dnsmasq[0].filter_aaaa='0'                     # 不拦 AAAA:走代理的域名由 J-Box 自己回空
 
 # 设置防火墙-旁路由模式
 uci set firewall.@defaults[0].syn_flood='0'                  # 禁用 SYN-flood 防御
@@ -215,19 +215,23 @@ uci set firewall.@defaults[0].fullcone='1'                   # 启用 FullCone N
 uci set firewall.@defaults[0].fullcone6='0'                  # 禁用 FullCone NAT6
 uci set firewall.@zone[0].masq='1'                             # 启用LAN口 IP 动态伪装
 
-# 旁路IPV6需要全部禁用
-uci del network.lan.ip6assign                                 # IPV6分配长度-禁用
-uci del dhcp.lan.ra                                             # 路由通告服务-禁用
-uci del dhcp.lan.dhcpv6                                        # DHCPv6 服务-禁用
-uci del dhcp.lan.ra_management                               # DHCPv6 模式-禁用
-
-# 如果有用IPV6的话,可以使用以下命令创建IPV6客户端(LAN口)（去掉全部代码uci前面#号生效）
-uci set network.ipv6=interface
-uci set network.ipv6.proto='dhcpv6'
-uci set network.ipv6.ifname='@lan'
-uci set network.ipv6.reqaddress='try'
-uci set network.ipv6.reqprefix='auto'
-uci set firewall.@zone[0].network='lan ipv6'
+# 旁路由 IPv6:LAN 侧开 RA/DHCPv6,客户端 DNS 只发本机(odhcpd 的 dns 默认就是接口自己的地址),
+# 不发上游/公共 DNS —— 否则 IPv6 这条路会绕开本机解析,拿到的是被污染的结果。ndp 保持 disabled,
+# 不把上游 RA 里的前缀 / DNS 代答下去。上游 /64 与默认路由先给一套现网默认值,开机由
+# /usr/libexec/jbox-ipv6-lan.sh 按网段实际情况自动校正(见 build/scripts/jbox/ipv6-lan.sh)。
+uci set dhcp.lan.ra='server'                                  # 路由通告服务-开
+uci set dhcp.lan.dhcpv6='server'                              # DHCPv6 服务-开
+uci set dhcp.lan.ra_management='2'                            # DHCPv6 模式:有状态分配地址
+uci set dhcp.lan.ra_preference='high'                         # 客户端优先用本机当 v6 网关
+uci set dhcp.lan.ra_dns='1'                                   # RA 里带 RDNSS
+uci set dhcp.lan.ndp='disabled'                               # 不代答上游 RA,不把上游前缀/DNS 带下去
+uci set network.lan6=interface
+uci set network.lan6.device='br-lan'
+uci set network.lan6.proto='static'
+uci set network.lan6.ip6addr='240e:351:3724:d101::2/64'       # 现网默认,开机自动校正
+uci set network.lan6.ip6gw='fe80::20c:29ff:fe6c:9458'         # 上游主路由的链路本地地址
+uci set network.lan6.jbox_auto='1'                            # 标记:这一节由开机自检脚本维护
+uci set firewall.@zone[0].network='lan'                       # lan6 与 lan 共用 br-lan,同一个 zone
 
 uci commit dhcp
 uci commit network

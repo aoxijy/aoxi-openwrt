@@ -134,10 +134,25 @@ chmod 0755 \
     "$OPENWRT_ROOT/files/etc/init.d/jbox" \
     "$OPENWRT_ROOT/files/etc/init.d/jbox-panel"
 
+# 旁路由 IPv6 自配置脚本(说明见该文件头):rc.local 在 network/odhcpd 起来之后跑一次,
+# 学上游 /64、配 lan6、开 RA/DHCPv6,DNS 只发本机 —— 避免 IPv6 这条路把解析交给上游。
+mkdir -p "$OPENWRT_ROOT/files/usr/libexec"
+cp "$SCRIPT_DIR/ipv6-lan.sh" "$OPENWRT_ROOT/files/usr/libexec/jbox-ipv6-lan.sh"
+chmod 0755 "$OPENWRT_ROOT/files/usr/libexec/jbox-ipv6-lan.sh"
+
 cat > "$OPENWRT_ROOT/files/etc/uci-defaults/96-jbox" <<'EOF'
 #!/bin/sh
 rm -rf /tmp/luci-*cache* 2>/dev/null || true
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1 || true
+# 旁路由 IPv6 自检挂在 rc.local 里(每次开机跑,幂等;见 /usr/libexec/jbox-ipv6-lan.sh)
+if [ -f /etc/rc.local ] && ! grep -q 'jbox-ipv6-lan' /etc/rc.local; then
+	if grep -q '^exit 0' /etc/rc.local; then
+		sed -i '/^exit 0/i [ -x /usr/libexec/jbox-ipv6-lan.sh ] \&\& /usr/libexec/jbox-ipv6-lan.sh \&' /etc/rc.local
+	else
+		printf '[ -x /usr/libexec/jbox-ipv6-lan.sh ] && /usr/libexec/jbox-ipv6-lan.sh &\nexit 0\n' >> /etc/rc.local
+	fi
+	chmod 0755 /etc/rc.local
+fi
 /etc/init.d/jbox-panel enable
 /etc/init.d/jbox-panel start
 exit 0

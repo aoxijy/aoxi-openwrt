@@ -63,6 +63,31 @@ def check_target(name: str, docker: bool) -> None:
     if f"CONFIG_TARGET_ROOTFS_PARTSIZE={expected_rootfs}" not in text:
         fail(f"{name}: rootfs 分区大小不是 {expected_rootfs} MiB")
 
+    # 旁路由 IPv6:默认开 LAN 侧 RA/DHCPv6,上游 /64 给一套默认值并交给开机脚本校正;
+    # 客户端 DNS 必须只发本机(odhcpd 默认),不许出现发上游/公共 DNS 的 dhcp.lan.dns。
+    for needle in (
+        "uci set dhcp.lan.ra='server'",
+        "uci set dhcp.lan.dhcpv6='server'",
+        "uci set dhcp.lan.ra_management='2'",
+        "uci set dhcp.lan.ra_preference='high'",
+        "uci set dhcp.lan.ra_dns='1'",
+        "uci set dhcp.lan.ndp='disabled'",
+        "uci set network.lan.delegate='0'",
+        "uci set network.lan6.proto='static'",
+        "uci set network.lan6.jbox_auto='1'",
+    ):
+        if needle not in text:
+            fail(f"{name}: 缺少 IPv6 默认配置: {needle}")
+    for forbidden in (
+        "uci del network.lan.ip6assign",
+        "uci del dhcp.lan.ra",
+        "uci del dhcp.lan.dhcpv6",
+        "uci del dhcp.lan.ra_management",
+        "uci set dhcp.lan.dns=",
+    ):
+        if forbidden in text:
+            fail(f"{name}: IPv6 默认配置不该出现: {forbidden}")
+
     settings_text = settings.read_text(encoding="utf-8")
     if 'INHERIT_FILES="Lean_x86_64"' not in settings_text:
         fail(f"{name}: 未声明继承 Lean_x86_64 的预置文件")
@@ -107,6 +132,32 @@ def main() -> int:
     for forbidden in ("liandu2024/Open-Box", "open-box-", "files/opt/open-box"):
         if forbidden in installer_text:
             fail(f"J-Box 安装脚本仍残留旧命名: {forbidden}")
+
+    # 旁路由 IPv6 自配置:脚本本体 + 集成进固件 + rc.local 挂钩
+    helper = ROOT / "build/scripts/jbox/ipv6-lan.sh"
+    if not helper.is_file():
+        fail("缺少旁路由 IPv6 自配置脚本 build/scripts/jbox/ipv6-lan.sh")
+    helper_text = helper.read_text(encoding="utf-8")
+    for needle in (
+        "ff02::1",
+        "jbox_auto",
+        "set_opt dhcp.lan ra server",
+        "set_opt dhcp.lan dhcpv6 server",
+        "set_opt dhcp.lan ndp disabled",
+        "delete dhcp.lan.dns",
+        "odhcpd",
+        "lan6",
+        "dadfailed",
+    ):
+        if needle not in helper_text:
+            fail(f"IPv6 自配置脚本缺少关键行为: {needle}")
+    for needle in (
+        'cp "$SCRIPT_DIR/ipv6-lan.sh"',
+        "/usr/libexec/jbox-ipv6-lan.sh",
+        "grep -q 'jbox-ipv6-lan'",
+    ):
+        if needle not in installer_text:
+            fail(f"J-Box 安装脚本未接入 IPv6 自配置: {needle}")
 
     update = (ROOT / ".github/workflows/update-geoip.yml").read_text(encoding="utf-8")
     for name in TARGETS:
