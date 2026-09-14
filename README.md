@@ -12,6 +12,7 @@
 - ✅x86[J-Box] 固件：集成 [J-Box](https://github.com/aoxijy/J-box)，不包含 Docker 和 OpenClash
 - ✅x86[J-Box+Docker] 固件：在 J-Box 版基础上增加 Docker，不包含 OpenClash
 - 🌐 J-Box 版默认开旁路由 IPv6：LAN 侧发 RA/DHCPv6，**客户端 DNS 只发本机**（不发上游/公共 DNS，避免解析走 IPv6 绕过本机被污染）；上游 `/64` 与默认路由先给一套现网默认值，开机由 `/usr/libexec/jbox-ipv6-lan.sh` 按所在网段自动校正，用户自己配过 IPv6 则完全不接管
+- 🛡 没有公网 IPv6 / 主路由不发 v6 也不会出问题：`dhcp.lan.ra_default=1` 保证本机**没有公网地址时不发 v6 默认路由**（否则客户端会把 v6 全送进来再没处去），脚本发现上游没有可用 `/64` 时还会撤掉自建的前缀；整条线路都没有公网 v6 时，把面板里「IPv6」关掉即可（DNS 只回 A、防火墙拦 v6，完全不碰 IPv6）
 - 本固件以简洁稳定为主，除必要基础包集合大多数文明上网插件与EasyTier组网。
 
 ## 插件预览 [![](https://img.shields.io/badge/-固件插件及功能预览-FFFFFF.svg)](#插件预览-)

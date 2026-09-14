@@ -90,7 +90,18 @@ if [ -z "$prefix" ]; then
 		}
 		END { best = ""; bestn = 1; for (p in cnt) if (cnt[p] > bestn) { bestn = cnt[p]; best = p } print best }')
 fi
-[ -n "$prefix" ] || skip "网段里暂时没有可用的公网 /64(等客户端拿到 IPv6 后再试),保持现状"
+if [ -z "$prefix" ]; then
+	# 没找到上游 /64:如果 lan6 是本脚本自己建的,把它撤掉 —— 免得继续广播一个已经不存在的
+	# 前缀(ra_default=1 只保证"没有公网地址时不发默认路由",PIO 还是会发)。用户自己配的 IPv6 不动。
+	if [ -n "$(uci -q get network.lan6 || echo '')" ] && [ "$(uci -q get network.lan6.jbox_auto || echo '')" = "1" ]; then
+		uci -q delete network.lan6
+		uci commit network
+		ubus call network.interface.lan6 down >/dev/null 2>&1 || true
+		/etc/init.d/odhcpd reload >/dev/null 2>&1 || /etc/init.d/odhcpd restart >/dev/null 2>&1 || true
+		log "上游没有可用的公网 /64,已撤掉自建的 lan6(不再广播不存在的 v6 前缀)"
+	fi
+	skip "网段里暂时没有可用的公网 /64(等上游/客户端拿到 IPv6 后再试),保持现状"
+fi
 
 # 网关:优先主路由的链路本地地址,取不到就用带全局地址的设备的链路本地
 if [ -z "$gw6" ]; then

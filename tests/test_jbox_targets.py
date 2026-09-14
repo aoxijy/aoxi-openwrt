@@ -75,6 +75,7 @@ def check_target(name: str, docker: bool) -> None:
         "uci set network.lan.delegate='0'",
         "uci set network.lan6.proto='static'",
         "uci set network.lan6.jbox_auto='1'",
+        "uci set dhcp.lan.ra_default='1'",
     ):
         if needle not in text:
             fail(f"{name}: 缺少 IPv6 默认配置: {needle}")
@@ -148,6 +149,7 @@ def main() -> int:
         "odhcpd",
         "lan6",
         "dadfailed",
+        "上游没有可用的公网 /64",
     ):
         if needle not in helper_text:
             fail(f"IPv6 自配置脚本缺少关键行为: {needle}")

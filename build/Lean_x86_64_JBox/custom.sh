@@ -224,6 +224,10 @@ uci set dhcp.lan.dhcpv6='server'                              # DHCPv6 服务-�
 uci set dhcp.lan.ra_management='2'                            # DHCPv6 模式:有状态分配地址
 uci set dhcp.lan.ra_preference='high'                         # 客户端优先用本机当 v6 网关
 uci set dhcp.lan.ra_dns='1'                                   # RA 里带 RDNSS
+# ra_default=1:接口上没有公网地址时**不发默认路由**。odhcpd 默认是 0——即使本机没有公网 v6
+# 也会把自己当 v6 网关发出去,客户端的 v6 就全进这台机器然后没处去(网页会先试 v6、卡一下才回退 v4)。
+# 没有公网 IPv6 / 主路由不发 v6 的网络里,这条保证本机不会变成 v6 黑洞;有前缀时照常发。
+uci set dhcp.lan.ra_default='1'
 uci set dhcp.lan.ndp='disabled'                               # 不代答上游 RA,不把上游前缀/DNS 带下去
 uci set network.lan6=interface
 uci set network.lan6.device='br-lan'
