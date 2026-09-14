@@ -9,8 +9,8 @@
   
 - ✅x86 固件默认 IP 地址：`172.18.18.222` 默认密码：`无密码`
 - ✅x86[Docker] 固件默认 IP 地址：`172.18.18.222` 默认密码：`无密码`
-- ✅x86[Open-Box] 固件：集成 [Open-Box](https://github.com/liandu2024/Open-Box)，不包含 Docker 和 OpenClash
-- ✅x86[Open-Box+Docker] 固件：在 Open-Box 版基础上增加 Docker，不包含 OpenClash
+- ✅x86[J-Box] 固件：集成 [J-Box](https://github.com/aoxijy/J-box)，不包含 Docker 和 OpenClash
+- ✅x86[J-Box+Docker] 固件：在 J-Box 版基础上增加 Docker，不包含 OpenClash
 - 本固件以简洁稳定为主，除必要基础包集合大多数文明上网插件与EasyTier组网。
 
 ## 插件预览 [![](https://img.shields.io/badge/-固件插件及功能预览-FFFFFF.svg)](#插件预览-)
@@ -65,11 +65,11 @@
 ## 固件下载
 **点击跳转到该设备固件下载页面**
 - ♨️【x86】普通版：Kernel=16 MiB，rootfs=360 MiB；Docker 版：Kernel=32 MiB，rootfs=3000 MiB
-- ♨️【x86 Open-Box】普通版：Kernel=16 MiB，rootfs=1024 MiB；Docker 版：Kernel=32 MiB，rootfs=3000 MiB
+- ♨️【x86 J-Box】普通版：Kernel=16 MiB，rootfs=1024 MiB；Docker 版：Kernel=32 MiB，rootfs=3000 MiB
 - [**X86版下载地址**](https://github.com/aoxijy/aoxi-openwrt/releases)
 - [**X86-docker版下载地址**](https://github.com/aoxijy/aoxi-openwrt/releases)
-- [**X86-Open-Box版下载地址**](https://github.com/aoxijy/aoxi-openwrt/releases)
-- [**X86-Open-Box-Docker版下载地址**](https://github.com/aoxijy/aoxi-openwrt/releases)
+- [**X86-J-Box版下载地址**](https://github.com/aoxijy/aoxi-openwrt/releases)
+- [**X86-J-Box-Docker版下载地址**](https://github.com/aoxijy/aoxi-openwrt/releases)
 
 ## 鸣谢 [![](https://img.shields.io/badge/-感谢各大佬-FFFFFF.svg)](#鸣谢-)
 | [db-one](https://github.com/db-one/) | [coolsnowwolf](https://github.com/coolsnowwolf) | [P3TERX](https://github.com/P3TERX) | [Jejz168](https://github.com/Jejz168) | [haiibo](https://github.com/haiibo) | [Lenyu2020](https://github.com/Lenyu2020) |

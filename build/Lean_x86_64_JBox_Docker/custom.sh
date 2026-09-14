@@ -22,8 +22,8 @@ test "$(git -C package/aoxi-package rev-parse HEAD)" = "$AOXI_PACKAGE_COMMIT"
 # 在“状态 → 概况”底部加入服务菜单显示/隐藏开关（默认隐藏）
 bash build/scripts/luci-service-menu-toggle/install.sh
 
-# 将 Open-Box 官方发布包校验后直接集成进固件
-bash build/scripts/openbox/install.sh
+# 将 J-Box 官方发布包校验后直接集成进固件(集成脚本每次编译自动解析并拉取 J-Box 最新 release)
+bash build/scripts/jbox/install.sh
 
 # 修复 LEDE 源码: iptables-nft 依赖未定义的 Kconfig 符号 IPTABLES_NFTABLES,
 # 导致 make defconfig 时 CONFIG_PACKAGE_iptables-nft 被静默丢弃(固件只有 legacy iptables),
@@ -261,8 +261,8 @@ EOF
 
 # 设置固件大小:
 cat >> .config <<EOF
-CONFIG_TARGET_KERNEL_PARTSIZE=16
-CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+CONFIG_TARGET_KERNEL_PARTSIZE=32
+CONFIG_TARGET_ROOTFS_PARTSIZE=3000
 EOF
 
 # 同时生成SquashFS和ext4固件
@@ -396,7 +396,7 @@ CONFIG_PACKAGE_luci-app-wrtbwmon=y
 # CONFIG_PACKAGE_luci-app-sqm is not set
 # CONFIG_PACKAGE_luci-app-jd-dailybonus is not set
 # CONFIG_PACKAGE_luci-app-uugamebooster is not set
-# CONFIG_PACKAGE_luci-app-dockerman is not set
+CONFIG_PACKAGE_luci-app-dockerman=y
 # CONFIG_PACKAGE_luci-app-ttyd is not set
 # CONFIG_PACKAGE_luci-app-wireguard is not set
 EOF
@@ -477,7 +477,7 @@ echo "=== 修复完成 ==="
 # 禁止包含 OpenClash：若依赖解析将它重新启用，直接停止编译，避免产生混装固件。
 # OPENCLASH_FORBIDDEN
 if grep -Eqi '^CONFIG_PACKAGE_.*openclash=y$' .config; then
-    echo "错误: Open-Box 目标检测到 OpenClash 被启用，拒绝继续编译。"
+    echo "错误: J-Box 目标检测到 OpenClash 被启用，拒绝继续编译。"
     grep -Ei '^CONFIG_PACKAGE_.*openclash=y$' .config
     exit 1
 fi

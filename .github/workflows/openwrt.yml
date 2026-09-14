@@ -11,12 +11,12 @@ on:
         description: '编译 Lean_x86_64_Docker'
         type: boolean
         default: false
-      Lean_x86_64_OpenBox:
-        description: '编译 Lean_x86_64_OpenBox（无 Docker、无 OpenClash）'
+      Lean_x86_64_JBox:
+        description: '编译 Lean_x86_64_JBox（无 Docker、无 OpenClash）'
         type: boolean
         default: false
-      Lean_x86_64_OpenBox_Docker:
-        description: '编译 Lean_x86_64_OpenBox_Docker（无 OpenClash）'
+      Lean_x86_64_JBox_Docker:
+        description: '编译 Lean_x86_64_JBox_Docker（无 OpenClash）'
         type: boolean
         default: false
       CACHE_BUILD:
@@ -58,13 +58,13 @@ jobs:
           MODELS=()
           # 定时触发编译全部
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            MODELS=("Lean_x86_64" "Lean_x86_64_Docker" "Lean_x86_64_OpenBox" "Lean_x86_64_OpenBox_Docker")
+            MODELS=("Lean_x86_64" "Lean_x86_64_Docker" "Lean_x86_64_JBox" "Lean_x86_64_JBox_Docker")
           else
             # 手动触发判断
             [ "${{ github.event.inputs.Lean_x86_64 }}" = "true" ] && MODELS+=("Lean_x86_64")
             [ "${{ github.event.inputs.Lean_x86_64_Docker }}" = "true" ] && MODELS+=("Lean_x86_64_Docker")
-            [ "${{ github.event.inputs.Lean_x86_64_OpenBox }}" = "true" ] && MODELS+=("Lean_x86_64_OpenBox")
-            [ "${{ github.event.inputs.Lean_x86_64_OpenBox_Docker }}" = "true" ] && MODELS+=("Lean_x86_64_OpenBox_Docker")
+            [ "${{ github.event.inputs.Lean_x86_64_JBox }}" = "true" ] && MODELS+=("Lean_x86_64_JBox")
+            [ "${{ github.event.inputs.Lean_x86_64_JBox_Docker }}" = "true" ] && MODELS+=("Lean_x86_64_JBox_Docker")
           fi
           
           # 转换为 JSON 数组
@@ -246,15 +246,15 @@ jobs:
 
         make defconfig
 
-        # Open-Box 目标必须在依赖解析后仍完全不含 OpenClash。
-        if [[ "${{ matrix.target }}" == *OpenBox* ]]; then
+        # J-Box 目标必须在依赖解析后仍完全不含 OpenClash。
+        if [[ "${{ matrix.target }}" == *JBox* ]]; then
           if grep -Eqi '^CONFIG_PACKAGE_.*openclash=y$' .config; then
-            echo "错误: defconfig 后检测到 OpenClash 被启用，拒绝编译 Open-Box 目标。"
+            echo "错误: defconfig 后检测到 OpenClash 被启用，拒绝编译 J-Box 目标。"
             grep -Ei '^CONFIG_PACKAGE_.*openclash=y$' .config
             exit 1
           fi
           rm -rf files/etc/openclash files/usr/share/openclash files/etc/uci-defaults/*openclash*
-          echo "Open-Box 目标检查通过：OpenClash 未启用且无数据/更新脚本残留。"
+          echo "J-Box 目标检查通过：OpenClash 未启用且无数据/更新脚本残留。"
         fi
 
     - name: SSH远程连接服务器

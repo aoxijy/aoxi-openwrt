@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract tests for the Open-Box firmware targets."""
+"""Contract tests for the J-Box firmware targets."""
 
 from pathlib import Path
 import re
@@ -9,8 +9,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/openwrt.yml"
 TARGETS = {
-    "Lean_x86_64_OpenBox": False,
-    "Lean_x86_64_OpenBox_Docker": True,
+    "Lean_x86_64_JBox": False,
+    "Lean_x86_64_JBox_Docker": True,
 }
 
 
@@ -30,8 +30,8 @@ def check_target(name: str, docker: bool) -> None:
         fail(f"{name}: aoxi-package 未固定到已审查提交")
     if "example.com/path/to" in text:
         fail(f"{name}: 仍包含无效的占位 IPK 下载地址")
-    if "build/scripts/openbox/install.sh" not in text:
-        fail(f"{name}: 未接入 Open-Box 编译时安装脚本")
+    if "build/scripts/jbox/install.sh" not in text:
+        fail(f"{name}: 未接入 J-Box 编译时安装脚本")
     if "CONFIG_PACKAGE_luci-app-openclash=y" in text:
         fail(f"{name}: 仍会安装 luci-app-openclash")
     if not re.search(r"# CONFIG_PACKAGE_luci-app-openclash is not set", text):
@@ -66,7 +66,7 @@ def check_target(name: str, docker: bool) -> None:
     settings_text = settings.read_text(encoding="utf-8")
     if 'INHERIT_FILES="Lean_x86_64"' not in settings_text:
         fail(f"{name}: 未声明继承 Lean_x86_64 的预置文件")
-    expected = f'FIRMWARE_MESSAGE="Lede_x86_64_OpenBox{"_Docker" if docker else ""}"'
+    expected = f'FIRMWARE_MESSAGE="Lede_x86_64_JBox{"_Docker" if docker else ""}"'
     if expected not in settings_text:
         fail(f"{name}: FIRMWARE_MESSAGE 不正确")
 
@@ -88,27 +88,32 @@ def main() -> int:
     for name, docker in TARGETS.items():
         check_target(name, docker)
 
-    installer = ROOT / "build/scripts/openbox/install.sh"
+    installer = ROOT / "build/scripts/jbox/install.sh"
     if not installer.is_file():
-        fail("缺少 Open-Box 编译时安装脚本")
+        fail("缺少 J-Box 编译时安装脚本")
     installer_text = installer.read_text(encoding="utf-8")
     for needle in (
-        "OPENBOX_VERSION=\"v0.1.169\"",
-        "4f13efc39f50fcd520a2fd638cb6fb5737a5540afa6b9013bc0e35ff5a0e3ee8",
-        "open-box-${OPENBOX_VERSION}-linux-x64.tar.gz",
-        "files/opt/open-box",
-        "openbox-panel",
+        'REPO="aoxijy/J-box"',
+        # 每次编译自动解析并拉取最新 release,不再钉死版本号与哈希
+        "releases/latest",
+        "j-box-${LATEST_TAG}-linux-${ASSET_ARCH}.tar.gz",
+        "j-box-linux-${ASSET_ARCH}.tar.gz",
+        "files/opt/j-box",
+        "jbox-panel",
         "validate_archive.py",
     ):
         if needle not in installer_text:
-            fail(f"Open-Box 安装脚本缺少关键行为: {needle}")
+            fail(f"J-Box 安装脚本缺少关键行为: {needle}")
+    for forbidden in ("liandu2024/Open-Box", "open-box-", "files/opt/open-box"):
+        if forbidden in installer_text:
+            fail(f"J-Box 安装脚本仍残留旧命名: {forbidden}")
 
     update = (ROOT / ".github/workflows/update-geoip.yml").read_text(encoding="utf-8")
     for name in TARGETS:
         if f"build/{name}/" in update:
             fail(f"OpenClash 更新脚本不应触碰 {name}")
 
-    print("OPENBOX_TARGET_CONTRACT_OK")
+    print("JBOX_TARGET_CONTRACT_OK")
     return 0
 
 

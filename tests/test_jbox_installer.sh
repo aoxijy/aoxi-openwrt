@@ -8,13 +8,14 @@ trap 'rm -rf "$TMP"' EXIT
 PAYLOAD="$TMP/payload"
 ASSETS="$TMP/assets"
 BUILDROOT="$TMP/openwrt"
-ASSET_NAME="open-box-v0.1.169-linux-x64.tar.gz"
+# 本地夹具模式用不带版本号的稳定资产名(install.sh 在 JBOX_ASSET_DIR 下不联网解析 tag)
+ASSET_NAME="j-box-linux-x64.tar.gz"
 mkdir -p \
     "$PAYLOAD/node/bin" \
     "$PAYLOAD/bin" \
     "$PAYLOAD/panel/server" \
     "$PAYLOAD/openwrt/initd" \
-    "$PAYLOAD/openwrt/luci/htdocs/luci-static/resources/view/openbox" \
+    "$PAYLOAD/openwrt/luci/htdocs/luci-static/resources/view/jbox" \
     "$PAYLOAD/openwrt/luci/root/usr/share/luci/menu.d" \
     "$PAYLOAD/openwrt/luci/root/usr/share/rpcd/acl.d" \
     "$ASSETS" "$BUILDROOT/scripts"
@@ -23,11 +24,11 @@ for f in \
     node/bin/node \
     bin/sing-box \
     panel/server/index.mjs \
-    openwrt/initd/openbox \
-    openwrt/initd/openbox-panel \
-    openwrt/luci/htdocs/luci-static/resources/view/openbox/status.js \
-    openwrt/luci/root/usr/share/luci/menu.d/luci-app-openbox.json \
-    openwrt/luci/root/usr/share/rpcd/acl.d/luci-app-openbox.json; do
+    openwrt/initd/jbox \
+    openwrt/initd/jbox-panel \
+    openwrt/luci/htdocs/luci-static/resources/view/jbox/status.js \
+    openwrt/luci/root/usr/share/luci/menu.d/luci-app-jbox.json \
+    openwrt/luci/root/usr/share/rpcd/acl.d/luci-app-jbox.json; do
     printf 'fixture:%s\n' "$f" > "$PAYLOAD/$f"
 done
 
@@ -38,26 +39,26 @@ chmod +x "$BUILDROOT/scripts/feeds"
 
 (
     cd "$BUILDROOT"
-    OPENBOX_ASSET_DIR="$ASSETS" OPENBOX_TEST_SHA256="$FIXTURE_SHA256" \
-        bash "$REPO_ROOT/build/scripts/openbox/install.sh"
+    JBOX_ASSET_DIR="$ASSETS" JBOX_TEST_SHA256="$FIXTURE_SHA256" \
+        bash "$REPO_ROOT/build/scripts/jbox/install.sh"
 )
 
 for f in \
-    files/opt/open-box/node/bin/node \
-    files/opt/open-box/bin/sing-box \
-    files/etc/init.d/openbox \
-    files/etc/init.d/openbox-panel \
-    files/etc/uci-defaults/96-openbox \
-    files/www/luci-static/resources/view/openbox/status.js \
-    files/usr/share/luci/menu.d/luci-app-openbox.json \
-    files/usr/share/rpcd/acl.d/luci-app-openbox.json; do
+    files/opt/j-box/node/bin/node \
+    files/opt/j-box/bin/sing-box \
+    files/etc/init.d/jbox \
+    files/etc/init.d/jbox-panel \
+    files/etc/uci-defaults/96-jbox \
+    files/www/luci-static/resources/view/jbox/status.js \
+    files/usr/share/luci/menu.d/luci-app-jbox.json \
+    files/usr/share/rpcd/acl.d/luci-app-jbox.json; do
     test -e "$BUILDROOT/$f"
 done
 
-test -x "$BUILDROOT/files/etc/init.d/openbox-panel"
-grep -q '^direct$' "$BUILDROOT/files/opt/open-box/data/channel"
-grep -q '/etc/init.d/openbox-panel enable' "$BUILDROOT/files/etc/uci-defaults/96-openbox"
-grep -q '/etc/init.d/openbox-panel start' "$BUILDROOT/files/etc/uci-defaults/96-openbox"
+test -x "$BUILDROOT/files/etc/init.d/jbox-panel"
+grep -q '^direct$' "$BUILDROOT/files/opt/j-box/data/channel"
+grep -q '/etc/init.d/jbox-panel enable' "$BUILDROOT/files/etc/uci-defaults/96-jbox"
+grep -q '/etc/init.d/jbox-panel start' "$BUILDROOT/files/etc/uci-defaults/96-jbox"
 
 # 损坏发布包必须在 SHA256 校验阶段被拒绝。
 printf 'corrupt' >> "$ASSETS/$ASSET_NAME"
@@ -65,9 +66,9 @@ BADROOT="$TMP/bad-openwrt"
 mkdir -p "$BADROOT/scripts"
 printf '#!/bin/sh\n' > "$BADROOT/scripts/feeds"
 chmod +x "$BADROOT/scripts/feeds"
-if (cd "$BADROOT" && OPENBOX_ASSET_DIR="$ASSETS" OPENBOX_TEST_SHA256="$FIXTURE_SHA256" \
-    bash "$REPO_ROOT/build/scripts/openbox/install.sh" >/dev/null 2>&1); then
-    echo "损坏的 Open-Box 发布包未被拒绝" >&2
+if (cd "$BADROOT" && JBOX_ASSET_DIR="$ASSETS" JBOX_TEST_SHA256="$FIXTURE_SHA256" \
+    bash "$REPO_ROOT/build/scripts/jbox/install.sh" >/dev/null 2>&1); then
+    echo "损坏的 J-Box 发布包未被拒绝" >&2
     exit 1
 fi
 
@@ -84,7 +85,7 @@ with tarfile.open(sys.argv[1], "w:gz") as bundle:
     info.size = len(payload)
     bundle.addfile(info, io.BytesIO(payload))
 PY
-if python3 "$REPO_ROOT/build/scripts/openbox/validate_archive.py" "$MALICIOUS" >/dev/null 2>&1; then
+if python3 "$REPO_ROOT/build/scripts/jbox/validate_archive.py" "$MALICIOUS" >/dev/null 2>&1; then
     echo "路径穿越归档未被拒绝" >&2
     exit 1
 fi
@@ -100,9 +101,9 @@ with tarfile.open(sys.argv[1], "w:gz") as bundle:
     info.linkname = "../../etc/passwd"
     bundle.addfile(info)
 PY
-if python3 "$REPO_ROOT/build/scripts/openbox/validate_archive.py" "$MALICIOUS_LINK" >/dev/null 2>&1; then
+if python3 "$REPO_ROOT/build/scripts/jbox/validate_archive.py" "$MALICIOUS_LINK" >/dev/null 2>&1; then
     echo "越界符号链接归档未被拒绝" >&2
     exit 1
 fi
 
-echo OPENBOX_INSTALLER_FIXTURE_OK
+echo JBOX_INSTALLER_FIXTURE_OK

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safely validate and optionally extract an Open-Box tar archive."""
+"""Safely validate and optionally extract an J-Box tar archive."""
 
 from pathlib import Path, PurePosixPath
 import posixpath
@@ -55,10 +55,10 @@ def main() -> int:
                 # Validation and extraction use the same parser and member list.
                 bundle.extractall(path=destination, members=members)
     except (OSError, tarfile.TarError, ValueError) as exc:
-        print(f"Open-Box 归档安全校验失败: {exc}", file=sys.stderr)
+        print(f"J-Box 归档安全校验失败: {exc}", file=sys.stderr)
         return 1
 
-    print("Open-Box 归档路径校验通过")
+    print("J-Box 归档路径校验通过")
     return 0
 
 
