@@ -15,6 +15,30 @@
 - 🛡 没有公网 IPv6 / 主路由不发 v6 也不会出问题：`dhcp.lan.ra_default=1` 保证本机**没有公网地址时不发 v6 默认路由**（否则客户端会把 v6 全送进来再没处去），脚本发现上游没有可用 `/64` 时还会撤掉自建的前缀；整条线路都没有公网 v6 时，把面板里「IPv6」关掉即可（DNS 只回 A、防火墙拦 v6，完全不碰 IPv6）
 - 本固件以简洁稳定为主，除必要基础包集合大多数文明上网插件与EasyTier组网。
 
+## OpenClash 规则（guize `.mrs`）[![](https://img.shields.io/badge/-OpenClash%20mrs-FFFFFF.svg)](#openclash-规则guize-mrs-)
+- 固件已预置 **13 个分类 `.mrs` 规则集**（AI平台 / 社交聊天 / 开发平台 / 国外媒体 / 微软苹果 / 全球直连 / 全球拦截），
+  来源 [aoxijy/guize](https://github.com/aoxijy/guize) 的 `mrs-latest` Release，另有本地备份 + 兜底 cron，断网也能启动
+- 内核用 **MetaCubeX mihomo**（`v1.19.30`，`format: mrs` 需要 mihomo ≥ 1.18.3），由 `custom.sh` 在编译时下载
+- 默认配置（节点）从仓库密钥 `OPENCLASH_CONFIG` 注入 —— 内容为 `base64(gzip(配置文件))`，
+  **公开仓库里不出现任何节点信息**；换配置时重新设置密钥再编译即可
+- 首次开机由 `/etc/uci-defaults/97-openclash-mrs` 自动完成：打 YAML.rb 补丁 → 铺开规则集备份 → 装兜底 cron → 配置严格模式瘦身
+- 开箱即用的配置长这样：`rules:` 只有 **13 条 `RULE-SET` + 1 条 `MATCH`**，规则总量 ≈ 4.8 万条全部由 `.mrs` 提供
+  （原来 47 111 条内联规则、2.7 MB 的 yaml → 现在 14 条、89 KB）
+- ⚠️ 已**移除** `GeoIP.dat` / `GeoSite.dat` / `Country.mmdb` / `ASN.mmdb`（每个变体省 46 MB）与
+  `.github/workflows/update-geoip.yml` 定时更新：严格模式配置里没有任何 `GEOIP/GEOSITE/IP-ASN` 规则，
+  实测把 4 个文件删掉后 `mihomo -t` 依然 successful。以后若要加 GEOIP 规则，联网时 mihomo 会自行下载
+
+### 更新 OpenClash 配置（节点）
+
+```sh
+# 1) 本机把配置压成一行 base64
+gzip -9c zhu5in1.yaml | base64 -w0 > oc-config.b64
+# 2) 写入仓库密钥（或到 GitHub 网页 Settings → Secrets 里改）
+gh secret set OPENCLASH_CONFIG -R aoxijy/aoxi-openwrt < oc-config.b64
+# 3) 重新跑一次编译
+gh workflow run openwrt.yml -R aoxijy/aoxi-openwrt -f Lean_x86_64=true
+```
+
 ## 插件预览 [![](https://img.shields.io/badge/-固件插件及功能预览-FFFFFF.svg)](#插件预览-)
 - ******此库为单独X86版******
 <details>

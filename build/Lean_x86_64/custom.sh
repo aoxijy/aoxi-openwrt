@@ -494,21 +494,32 @@ echo "=== 修复完成 ==="
 if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
     echo "检测到 OpenClash 已启用，开始下载内核..."
     mkdir -p files/etc/openclash/core
-    arch="amd64"   # 目标为 x86_64
-    KERNEL_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-${arch}.tar.gz"
-    wget -q "$KERNEL_URL" -O /tmp/clash-meta.tar.gz
-    if [ $? -eq 0 ] && [ -s /tmp/clash-meta.tar.gz ]; then
-        tar -xzf /tmp/clash-meta.tar.gz -C files/etc/openclash/core/
-        if [ -f files/etc/openclash/core/clash ]; then
-            mv files/etc/openclash/core/clash files/etc/openclash/core/clash_meta
-            chmod +x files/etc/openclash/core/clash_meta
-            echo "OpenClash Meta 内核配置成功"
-        else
-            echo "OpenClash Meta 内核解压失败"
-        fi
-        rm -f /tmp/clash-meta.tar.gz
+    # 必须用支持 format: mrs 的内核（mihomo >= 1.18.3）。固定 MetaCubeX 官方版本，保证可复现。
+    # 随固件预置的 13 个 .mrs 规则集就是在这个版本上实测通过的。
+    MIHOMO_VERSION="v1.19.30"
+    KERNEL_URL="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/mihomo-linux-amd64-${MIHOMO_VERSION}.gz"
+    rm -f files/etc/openclash/core/clash_meta /tmp/mihomo.gz
+    wget -q "$KERNEL_URL" -O /tmp/mihomo.gz && gzip -df /tmp/mihomo.gz && mv /tmp/mihomo files/etc/openclash/core/clash_meta && chmod +x files/etc/openclash/core/clash_meta
+    if [ -s files/etc/openclash/core/clash_meta ] && files/etc/openclash/core/clash_meta -v 2>/dev/null | grep -q "Mihomo"; then
+        echo "MetaCubeX mihomo ${MIHOMO_VERSION} 内核配置成功:"
+        files/etc/openclash/core/clash_meta -v | head -1
     else
-        echo "OpenClash Meta 内核下载失败，请检查网络或更换下载源"
+        echo "MetaCubeX 内核不可用，回退 vernesong 内核..."
+        KERNEL_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-amd64.tar.gz"
+        wget -q "$KERNEL_URL" -O /tmp/clash-meta.tar.gz
+        if [ $? -eq 0 ] && [ -s /tmp/clash-meta.tar.gz ]; then
+            tar -xzf /tmp/clash-meta.tar.gz -C files/etc/openclash/core/
+            if [ -f files/etc/openclash/core/clash ]; then
+                mv files/etc/openclash/core/clash files/etc/openclash/core/clash_meta
+                chmod +x files/etc/openclash/core/clash_meta
+                echo "OpenClash Meta 内核配置成功"
+            else
+                echo "OpenClash Meta 内核解压失败"
+            fi
+            rm -f /tmp/clash-meta.tar.gz
+        else
+            echo "OpenClash Meta 内核下载失败，请检查网络或更换下载源"
+        fi
     fi
 else
     echo "OpenClash 未启用，跳过内核下载"

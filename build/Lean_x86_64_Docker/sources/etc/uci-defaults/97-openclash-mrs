@@ -1,0 +1,26 @@
+#!/bin/sh
+# 由 aoxi-openwrt 固件预置：首次启动给 OpenClash 的 mrs 规则做准备工作
+#   · 让 OpenClash 自己生成的配置也用 UTF-8 写 emoji
+#   · 从本地备份补齐 .mrs 规则集缓存 + 装兜底 cron（全程不需要外网）
+#   · 把预置配置按严格模式瘦身（幂等）
+# 本脚本由 /etc/uci-defaults 机制在首次开机时执行一次，执行完会被删除。
+
+[ -d /etc/openclash ] || exit 0
+
+# 1) YAML.rb 补丁：统一 emoji 写法（\U0001F916 -> UTF-8）
+[ -x /etc/openclash/custom/oc-patch-yamlrb.sh ] && /etc/openclash/custom/oc-patch-yamlrb.sh
+
+# 2) 规则集缓存
+if [ -x /etc/openclash/custom/oc-mrs-restore.sh ]; then
+    /etc/openclash/custom/oc-mrs-restore.sh
+    /etc/openclash/custom/oc-mrs-restore.sh --install-cron
+fi
+
+# 3) 预置配置严格模式瘦身
+CFG="$(uci -q get openclash.config.config_path)"
+[ -z "$CFG" ] && CFG="/etc/openclash/config/zhu5in1.yaml"
+if [ -f "$CFG" ] && [ -x /etc/openclash/custom/oc-mrs-slim.sh ]; then
+    /etc/openclash/custom/oc-mrs-slim.sh "$CFG" --strict
+fi
+
+exit 0
