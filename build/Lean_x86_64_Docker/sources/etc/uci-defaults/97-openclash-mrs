@@ -16,7 +16,10 @@ if [ -x /etc/openclash/custom/oc-mrs-restore.sh ]; then
     /etc/openclash/custom/oc-mrs-restore.sh --install-cron
 fi
 
-# 3) 预置配置严格模式瘦身
+# 3) 没有预置配置时，尝试从 U 盘 / 局域网自动导入（固件默认不打包节点信息）
+[ -x /etc/openclash/custom/oc-mrs-import.sh ] && /etc/openclash/custom/oc-mrs-import.sh
+
+# 4) 预置配置严格模式瘦身
 CFG="$(uci -q get openclash.config.config_path)"
 [ -z "$CFG" ] && CFG="/etc/openclash/config/zhu5in1.yaml"
 if [ -f "$CFG" ] && [ -x /etc/openclash/custom/oc-mrs-slim.sh ]; then

@@ -28,15 +28,27 @@
   `.github/workflows/update-geoip.yml` 定时更新：严格模式配置里没有任何 `GEOIP/GEOSITE/IP-ASN` 规则，
   实测把 4 个文件删掉后 `mihomo -t` 依然 successful。以后若要加 GEOIP 规则，联网时 mihomo 会自行下载
 
-### 更新 OpenClash 配置（节点）
+### 节点配置怎么来（⚠️ 别把节点打进公开镜像）
+
+固件镜像会发布到 **公开的 Releases**，任何人下载后解包就能看到里面的文件。
+所以**默认不把节点配置打进固件**（和 EasyTier / NPS 一样「服务器地址不预置防泄露」）。
+规则集、内核、脚本已经全部就绪，刷完机给配置有三种方式：
+
+| 方式 | 说明 |
+|---|---|
+| **A. 手动导入（默认）** | LuCI → OpenClash → 配置文件 → 上传 `zhu5in1.yaml`；或 `scp zhu5in1.yaml root@<路由>:/etc/openclash/config/` 后重载配置。导入即可用 |
+| **B. U 盘 / 局域网自动导入** | 把 `zhu5in1.yaml` 放 U 盘根目录（或 U 盘 `/openclash/` 目录），或者把局域网下载地址写进 `/etc/openclash/custom/oc-config-url`（一行 http 地址）；首次开机 `oc-mrs-import.sh` 自动导入，之后再按严格模式瘦身 |
+| **C. 编译时注入（省事但会泄露）** | 设置仓库密钥 `OPENCLASH_CONFIG=base64(gzip(配置))`，编译时写进镜像。⚠️ **这样公开的 release 镜像里可以直接提取出你的节点密码** |
+
+方式 C 的开关：
 
 ```sh
-# 1) 本机把配置压成一行 base64
+# 打开
 gzip -9c zhu5in1.yaml | base64 -w0 > oc-config.b64
-# 2) 写入仓库密钥（或到 GitHub 网页 Settings → Secrets 里改）
 gh secret set OPENCLASH_CONFIG -R aoxijy/aoxi-openwrt < oc-config.b64
-# 3) 重新跑一次编译
 gh workflow run openwrt.yml -R aoxijy/aoxi-openwrt -f Lean_x86_64=true
+# 关掉（推荐保持关闭，用方式 A/B）
+gh secret delete OPENCLASH_CONFIG -R aoxijy/aoxi-openwrt
 ```
 
 ## 插件预览 [![](https://img.shields.io/badge/-固件插件及功能预览-FFFFFF.svg)](#插件预览-)

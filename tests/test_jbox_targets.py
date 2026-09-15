@@ -180,7 +180,7 @@ def main() -> int:
         if len(backup) != 14:
             fail(f"{name}: mrs 本地备份应为 14 个，实际 {len(backup)}")
         for script in ("oc-mrs-slim.sh", "oc-mrs-restore.sh", "oc-mrs-fetch.sh",
-                       "oc-patch-yamlrb.sh", "oc_mrs_slim.rb", "openclash_custom_overwrite.sh"):
+                       "oc-patch-yamlrb.sh", "oc-mrs-import.sh", "oc_mrs_slim.rb", "openclash_custom_overwrite.sh"):
             if not (base / "custom" / script).is_file():
                 fail(f"{name}: 缺少 OpenClash mrs 脚本 {script}")
         if not (ROOT / "build" / name / "sources" / "etc" / "uci-defaults" / "97-openclash-mrs").is_file():
