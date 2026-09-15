@@ -161,10 +161,35 @@ def main() -> int:
         if needle not in installer_text:
             fail(f"J-Box 安装脚本未接入 IPv6 自配置: {needle}")
 
-    update = (ROOT / ".github/workflows/update-geoip.yml").read_text(encoding="utf-8")
+    # 原来这里检查 update-geoip.yml 不碰 J-Box 目标；该工作流已随 GeoIP.dat/GeoSite.dat/
+    # Country.mmdb/ASN.mmdb 一起移除（严格模式规则里已无 GEOIP/GEOSITE/IP-ASN 规则）。
+    # 改成检查新的契约：带 OpenClash 的变体必须预置 mrs 规则集与配套脚本，
+    # J-Box 变体（sources 不继承）不得出现 OpenClash 数据。
+    if (ROOT / ".github/workflows/update-geoip.yml").exists():
+        fail("update-geoip.yml 应已移除（geo 数据不再需要）")
+    for name in ("Lean_x86_64", "Lean_x86_64_Docker"):
+        base = ROOT / "build" / name / "sources" / "etc" / "openclash"
+        providers = sorted((base / "rule_provider").glob("*.mrs"))
+        if len(providers) != 13:
+            fail(f"{name}: 预置的 mrs 规则集应为 13 个，实际 {len(providers)}")
+        backup = sorted((base / "custom" / "mrs-backup").glob("*.mrs"))
+        if len(backup) != 13:
+            fail(f"{name}: mrs 本地备份应为 13 个，实际 {len(backup)}")
+        for script in ("oc-mrs-slim.sh", "oc-mrs-restore.sh", "oc-mrs-fetch.sh",
+                       "oc-patch-yamlrb.sh", "oc_mrs_slim.rb", "openclash_custom_overwrite.sh"):
+            if not (base / "custom" / script).is_file():
+                fail(f"{name}: 缺少 OpenClash mrs 脚本 {script}")
+        if not (ROOT / "build" / name / "sources" / "etc" / "uci-defaults" / "97-openclash-mrs").is_file():
+            fail(f"{name}: 缺少首次启动脚本 97-openclash-mrs")
+        cfg = (ROOT / "build" / name / "sources" / "etc" / "config" / "openclash").read_text(encoding="utf-8")
+        if "config_path '/etc/openclash/config/zhu5in1.yaml'" not in cfg:
+            fail(f"{name}: uci 未指定 config_path")
+        for geo in ("GeoIP.dat", "GeoSite.dat", "Country.mmdb", "ASN.mmdb"):
+            if (base / geo).exists():
+                fail(f"{name}: 不该再预置 {geo}")
     for name in TARGETS:
-        if f"build/{name}/" in update:
-            fail(f"OpenClash 更新脚本不应触碰 {name}")
+        if (ROOT / "build" / name / "sources" / "etc" / "openclash").exists():
+            fail(f"J-Box 目标 {name} 不应包含 OpenClash 数据")
 
     print("JBOX_TARGET_CONTRACT_OK")
     return 0
