@@ -169,12 +169,16 @@ def main() -> int:
         fail("update-geoip.yml 应已移除（geo 数据不再需要）")
     for name in ("Lean_x86_64", "Lean_x86_64_Docker"):
         base = ROOT / "build" / name / "sources" / "etc" / "openclash"
-        providers = sorted((base / "rule_provider").glob("*.mrs"))
-        if len(providers) != 13:
-            fail(f"{name}: 预置的 mrs 规则集应为 13 个，实际 {len(providers)}")
+        guize = sorted(p for p in (base / "rule_provider").glob("*.mrs") if p.name != "oc-cn-domain.mrs")
+        if len(guize) != 13:
+            fail(f"{name}: 预置的 guize mrs 规则集应为 13 个，实际 {len(guize)}")
+        # OpenClash 自己会给 fake-ip-filter 加 rule-set:oc-cn-domain，没网时必须靠预置文件，
+        # 否则内核会因为下载不到规则集直接启动失败
+        if not (base / "rule_provider" / "oc-cn-domain.mrs").is_file():
+            fail(f"{name}: 缺少 oc-cn-domain.mrs（断网启动必需）")
         backup = sorted((base / "custom" / "mrs-backup").glob("*.mrs"))
-        if len(backup) != 13:
-            fail(f"{name}: mrs 本地备份应为 13 个，实际 {len(backup)}")
+        if len(backup) != 14:
+            fail(f"{name}: mrs 本地备份应为 14 个，实际 {len(backup)}")
         for script in ("oc-mrs-slim.sh", "oc-mrs-restore.sh", "oc-mrs-fetch.sh",
                        "oc-patch-yamlrb.sh", "oc_mrs_slim.rb", "openclash_custom_overwrite.sh"):
             if not (base / "custom" / script).is_file():
