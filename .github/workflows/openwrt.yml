@@ -117,6 +117,12 @@ jobs:
         echo "HOME=${GITHUB_WORKSPACE}/openwrt" >> $GITHUB_ENV
         echo "WORKPATH=${GITHUB_WORKSPACE}/openwrt/build/${{matrix.target}}" >> $GITHUB_ENV
 
+    - name: 编译前自检（凭据泄露 / LuCI 补丁锚点 / 面板密钥 / J-Box 契约）
+      run: |
+        # Ruby 用来跑 LuCI 补丁预演；装不上也不阻塞（对应测试会自动跳过）
+        command -v ruby >/dev/null 2>&1 || sudo apt-get install -y ruby >/dev/null 2>&1 || true
+        sh tests/run_all.sh
+
     - name: 注入 OpenClash 配置（来自仓库密钥，公开仓库里不含节点信息）
       if: ${{ !contains(matrix.target, 'JBox') }}
       env:

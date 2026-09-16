@@ -361,3 +361,139 @@ tar xzf openclash-fresh-kit-x86_64.tar.gz && cd <解包目录> && sh install-off
 
 > 换到别的架构（aarch64 等）的话，把该架构的 `clash_meta` 换进 `etc/openclash/core/` 即可，
 > 其余内容通用。OpenClash 本体建议直接用带 OpenClash 的固件，或者提前用同架构 ipk 离线装。
+
+---
+
+## 9. 在固件仓库里是怎么落地的（aoxi-openwrt）
+
+刷完机**不需要任何手动操作**，首次开机会自动做完：
+
+| # | 做什么 | 脚本 |
+|---|---|---|
+| 1 | 给 OpenClash 的 `YAML.rb` 打补丁：emoji 用 UTF-8 写，不再变成 `\U0001F916` | `oc-patch-yamlrb.sh` |
+| 2 | 从本地备份补齐 14 个 `.mrs` 规则集（不联网）+ 装兜底自愈 cron | `oc-mrs-restore.sh` |
+| 3 | 固件不预置节点配置；没有配置时从 U 盘 / 局域网自动导入 | `oc-mrs-import.sh` |
+| 4 | 规则严格模式瘦身（rules 只留 13 条 RULE-SET + MATCH） | `oc-mrs-slim.sh` |
+| 5 | 装 LuCI 的 MRS 延迟面板入口（首页卡片 + 设置页项） | `oc-luci-panel.rb` |
+| 6 | 把被接管的策略组改成 `select`，并装选路模型的定时任务 | `oc-smart.rb convert` / `oc-smart.sh --install-cron` |
+| 7 | 生成设备专属密钥并填进面板 | `oc-panel-secret.sh` |
+
+之后 **每次 OpenClash 生成运行配置**，钩子 `openclash_custom_overwrite.sh` 都会再走一遍
+「补 `.mrs` → 瘦身 → 重打 LuCI 补丁 → 对齐 `select` → 密钥自愈」——
+所以换订阅、改配置、甚至升级 OpenClash 之后，这些都会自动恢复，不用管。
+
+### 编译前自检（失败会直接阻断编译）
+
+`tests/run_all.sh`：
+
+| 检查 | 防的是什么 |
+|---|---|
+| `test_no_credentials.py` | 公开镜像里出现固定密钥（真出过事，见第 10 节） |
+| `test_luci_panel_patch.py` | OpenClash 升级后 LuCI 补丁锚点失配、面板入口静默消失 |
+| `test_panel_secret.sh` | 面板密钥生成/注入逻辑坏掉 |
+| `test_jbox_targets.py` | J-Box 变体混进 OpenClash；`aoxi-package` 没锁提交 |
+
+---
+
+## 10. 凭据：镜像里一个都不带
+
+固件仓库和 Releases 都是**公开**的，所以 `etc/config/openclash` 里这两项**留空**：
+
+| 项 | 作用 | 留空后怎么办 |
+|---|---|---|
+| `config.dashboard_password` | mihomo 的 `secret`，调 `http://<路由>:9090` 的 Bearer 密钥 | 首启由 `oc-panel-secret.sh` 生成 12 位随机串 |
+| `@authentication[0].password` | SOCKS5/HTTP(S) 代理认证密码（该项启用时） | 同上，仅在「已启用且为空」时补随机值 |
+
+生成后脚本会把密钥**写进 MRS 面板**（替换 `index.html` 里的 `__MRS_SECRET__` 占位符），
+所以打开面板就能用，不用手抄；你在 OpenClash 设置里改了密码，钩子下次会同步过去。
+
+> 为什么要这么做：第一版把路由器上的 `etc/config/openclash` 直接搬进了仓库，
+> 结果 API 密钥和代理认证密码都写在了 GitHub 上，**所有刷这个固件的设备共用一份公开密钥**。
+> 现在每台设备各自随机，镜像里查不到任何凭据。
+
+怎么查看/修改：
+
+```sh
+uci get openclash.config.dashboard_password          # 当前 API 密钥
+uci get openclash.@authentication[0].password        # 当前代理认证密码
+# 改（改完下次启动自动同步到面板）
+uci set openclash.config.dashboard_password='你自己设一个'; uci commit openclash
+/etc/openclash/custom/oc-panel-secret.sh --inject-only   # 立即同步到面板
+```
+
+---
+
+## 11. 选路模型（Smart 优选节点）
+
+被接管的组会在每个组**自己的成员里**挑最优（绝不跨组），每节点保留最近 10 条测速记录，
+按「延迟 + 抖动 + 超时」打分，当前节点不明显更差就不动。
+
+| 定时任务 | 频率 | 干什么 |
+|---|---|---|
+| `oc-smart.sh cycle` | 每 5 分钟 | 全量测速一轮（约 3 分钟；同服务器串行、不同服务器并发 8） |
+| `oc-smart.sh guard` | 每 1 分钟 | 只测每个组**当前选中**的节点，连续两次不通立刻换（不用等整轮） |
+| `oc-smart.sh watchdog` | 每 10 分钟 | 模型超过 30 分钟没更新状态 → 把组交回内核 `url-test` 自管（安全兜底） |
+
+常用命令：
+
+```sh
+oc-smart.sh status            # 每个组的当前节点 / 得分 / 候选前三
+oc-smart.sh select --force    # 立刻按已有记录重选（忽略"手动让位"）
+oc-smart.sh guard             # 手动跑一次快速守护
+oc-smart.sh type              # 看被接管的组现在是什么类型
+oc-smart.sh revert            # 全部交回内核 url-test
+oc-smart.sh reset             # 清空测速记录
+oc-smart.sh --remove-cron     # 卸载全部定时任务
+```
+
+调参在 `/etc/openclash/custom/oc-smart.conf`（每节点记录数、周期、超时、抖动容忍、
+手动让位时间、接管哪些组、各组的专用测试 URL 等）。
+
+---
+
+## 12. 为什么锁死 `aoxi-package` 的提交
+
+`build/<变体>/custom.sh` 里：
+
+```sh
+AOXI_PACKAGE_COMMIT="2121c2393259492e8c4f360775a2c3bc9fdd4370"
+```
+
+`aoxi-package` 会被上游机器人**自动同步**（OpenClash 本体随之更新），而 LuCI 面板补丁是靠
+字符串锚点改 OpenClash 自带 Lua 文件的 —— 锚点一变，补丁就会在刷机后静默失败
+（症状：LuCI 里根本没有 MRS 面板入口）。所以：
+
+1. 固定到已实测通过的提交，保证固件可复现；
+2. 升级时改 SHA，然后**先本地跑** `python3 tests/test_luci_panel_patch.py`
+   确认三处锚点仍匹配（用真实源码片段预演），再提交编译。
+
+---
+
+## 13. 刷完机怎么确认生效
+
+```sh
+# 1) 规则集是不是 14 个、规则是不是只剩 13 条 RULE-SET + MATCH
+ls /etc/openclash/rule_provider/ | wc -l
+grep -c '^  - RULE-SET' /etc/openclash/zhu5in1.yaml
+
+# 2) 收管的组是不是 select、模型有没有在跑
+/etc/openclash/custom/oc-smart.sh type
+/etc/openclash/custom/oc-smart.sh status
+tail -5 /etc/openclash/smart/status.txt
+
+# 3) 面板密钥有没有生成、有没有填进面板
+uci get openclash.config.dashboard_password
+grep -c "__MRS_SECRET__" /usr/share/openclash/ui/mrs-panel/index.html   # 应为 0
+
+# 4) LuCI 入口是否装上（应全是 ✓）
+ruby /etc/openclash/custom/oc-luci-panel.rb status
+```
+
+浏览器：
+
+| 入口 | 地址 |
+|---|---|
+| MRS 延迟面板（每节点最近 10 次记录，鼠标悬停延迟条看详情） | `http://<路由IP>:9090/ui/mrs-panel/` |
+| OpenClash 控制面板首页（有 MRS 面板卡片） | `http://<路由IP>/cgi-bin/luci/admin/services/openclash/client` |
+| 覆写设置 → Dashboard（可把 MRS Panel 设为默认面板） | `http://<路由IP>/cgi-bin/luci/admin/services/openclash/settings` |
+

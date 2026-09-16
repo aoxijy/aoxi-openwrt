@@ -5,6 +5,7 @@
 #   3) 固件默认不带节点配置：没有配置时从 U 盘 / 局域网自动导入
 #   4) 规则严格模式瘦身（rules 只留 13 条 RULE-SET + MATCH）
 #   5) MRS 延迟面板：LuCI 入口（首页卡片 + 设置页项）+ 选路模型 + 定时任务
+#   6) 面板密钥：镜像不带固定凭据，首启生成设备专属随机 secret 并填进面板
 # 本脚本由 /etc/uci-defaults 机制在首次开机时执行一次。
 
 [ -d /etc/openclash ] || exit 0
@@ -44,6 +45,13 @@ if [ -x "$SMART" ]; then
     if [ -x /etc/openclash/custom/oc-smart.sh ]; then
         /etc/openclash/custom/oc-smart.sh --install-cron
     fi
+fi
+
+# 6) 凭据自愈：公开仓库的镜像里不能带固定密钥，首启生成设备专属的随机值，
+#    并填进 MRS 面板，用户打开面板就能直接用（不用手抄 secret）
+if [ -x /etc/openclash/custom/oc-panel-secret.sh ]; then
+    echo "[oc-mrs] 检查/生成设备专属的面板密钥..."
+    /etc/openclash/custom/oc-panel-secret.sh
 fi
 
 exit 0

@@ -100,7 +100,13 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 };
-$('#secret').value = store.get('mrs-secret') || 'CLJblvhE';
+// 密钥：设备上由 oc-panel-secret.sh 把下面这行注入成真实的 dashboard_password
+// （仓库是公开的，镜像里不能带固定凭据；没注入时显示占位符、让用户自己填）。
+// 注意：注入值 **优先于** 本地保存的值 —— 否则在 OpenClash 里改了密码之后，
+// 浏览器 localStorage 里的旧密钥会一直盖住新密钥，面板就"打不开"了。
+const INJ = '__MRS_SECRET__';
+const INJECTED = INJ.indexOf('__MRS_SECRET') === 0 ? '' : INJ;
+$('#secret').value = INJECTED || store.get('mrs-secret') || '';
 $('#secret').onchange = () => { store.set('mrs-secret', $('#secret').value); load(); };
 $('#refresh').onclick = load;
 $('#auto').onchange = () => { if ($('#auto').checked) startTimer(); else stopTimer(); };
