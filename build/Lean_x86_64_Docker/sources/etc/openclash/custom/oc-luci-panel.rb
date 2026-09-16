@@ -29,10 +29,12 @@ def rm_rf(path)
   system('rm', '-rf', path)
 end
 
-TPL_SRC = '/etc/openclash/custom/luci'
-VIEW_DIR = '/usr/lib/lua/luci/view/openclash'
-CBI_DIR = '/usr/lib/lua/luci/model/cbi/openclash'
-CTL = '/usr/lib/lua/luci/controller/openclash.lua'
+# 路径可以用环境变量覆盖，便于在临时目录里做「预演安装」自测
+# 见 tests/test_luci_panel_patch.sh：拿 OpenClash 真实源码片段跑一遍，确认锚点没变
+TPL_SRC  = ENV['OC_PANEL_TPL']  || '/etc/openclash/custom/luci'
+VIEW_DIR = ENV['OC_PANEL_VIEW'] || '/usr/lib/lua/luci/view/openclash'
+CBI_DIR  = ENV['OC_PANEL_CBI']  || '/usr/lib/lua/luci/model/cbi/openclash'
+CTL      = ENV['OC_PANEL_CTL']  || '/usr/lib/lua/luci/controller/openclash.lua'
 STAMP = Time.now.strftime('%Y%m%d%H%M%S')
 MARK = 'MRS-PANEL-PATCH'
 
@@ -74,6 +76,16 @@ def patch(path, mode)
             "\tlocal dash_dir = default_dashboard and dashboard_dirs[default_dashboard]\n" \
             "\tif not dash_dir or not fs.isdirectory(\"/usr/share/openclash/ui/\" .. dash_dir) then"
       src = src.sub(a2, rep)
+    end
+    # 关键的第二处：把「真正写进 uci 的面板名」也改成目录名。
+    # 上游写的是 string.lower(default_dashboard)，对 MRSPanel 会存成 "mrspanel"，
+    # 而目录叫 "mrs-panel" —— 于是 action_dashboard_type 的目录检查失败，
+    # 「设为默认面板」等于没生效，控制面板按钮还是打开原来的面板。
+    # 只有确认文件里已经有 dash_dir 变量时才替换，避免生成引用未定义变量的坏文件。
+    legacy = %(uci:set("openclash", "config", "default_dashboard", string.lower(default_dashboard)))
+    if src.include?('local dash_dir') && src.include?(legacy)
+      src = src.sub(legacy, %(uci:set("openclash", "config", "default_dashboard", dash_dir)))
+      puts "  · 已修正写回 uci 的面板目录名（string.lower(默认面板) -> dash_dir）"
     end
   end
   if src != orig

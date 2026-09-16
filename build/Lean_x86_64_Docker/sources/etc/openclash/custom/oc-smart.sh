@@ -45,16 +45,18 @@ case "$1" in
     exit 0
     ;;
   --install-cron)
-    if grep -q "oc-smart-selfrun" "$CRON" 2>/dev/null; then
-      echo "[oc-smart] 定时任务已存在"
-      exit 0
-    fi
+    # 三行分开判断：老版本只装过 cycle+watchdog，升级固件后要能把 guard 补上
     INTERVAL=$(grep '^CYCLE_MIN=' "$CONF" 2>/dev/null | cut -d= -f2 | tr -d ' ')
     [ -z "$INTERVAL" ] && INTERVAL=5
-    echo "*/$INTERVAL * * * * /etc/openclash/custom/oc-smart.sh cycle >/dev/null 2>&1 #oc-smart-selfrun" >> "$CRON"
+    if grep -q "oc-smart-selfrun" "$CRON" 2>/dev/null; then
+      echo "[oc-smart] 主循环定时任务已存在，检查其余任务..."
+    else
+      echo "*/$INTERVAL * * * * /etc/openclash/custom/oc-smart.sh cycle >/dev/null 2>&1 #oc-smart-selfrun" >> "$CRON"
+    fi
     grep -q "oc-smart-watchdog" "$CRON" 2>/dev/null || echo "*/10 * * * * /etc/openclash/custom/oc-smart.sh watchdog >/dev/null 2>&1 #oc-smart-watchdog" >> "$CRON"
     grep -q "oc-smart-guard" "$CRON" 2>/dev/null || echo "* * * * * /etc/openclash/custom/oc-smart.sh guard >/dev/null 2>&1 #oc-smart-guard" >> "$CRON"
     crontab "$CRON" 2>/dev/null
+    /etc/init.d/cron enable >/dev/null 2>&1
     /etc/init.d/cron restart >/dev/null 2>&1
     echo "[oc-smart] 已安装定时任务：每 $INTERVAL 分钟一轮 + 每分钟快速守护 + 每 10 分钟看门狗"
     exit 0

@@ -28,6 +28,7 @@ case "$1" in
     else
       echo "$CRON_LINE" >> "$CRON"
       crontab "$CRON" 2>/dev/null
+      /etc/init.d/cron enable >/dev/null 2>&1
       /etc/init.d/cron restart >/dev/null 2>&1
       echo "[oc-mrs-restore] 已安装兜底 cron（每 10 分钟检查一次缓存，缺了就从本地备份补）"
     fi

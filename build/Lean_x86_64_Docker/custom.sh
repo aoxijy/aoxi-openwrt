@@ -10,7 +10,13 @@
 cat feeds.conf.default
 
 # 添加第三方软件包
-git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-package
+# aoxi-package 会被上游机器人自动同步（OpenClash 版本随之变化），这里固定到已实测通过的提交，
+# 保证固件可复现、LuCI 面板补丁的锚点不会突然失效。
+# 升级方法：改下面的 SHA → 本地跑 `python3 tests/test_luci_panel_patch.py` 验证锚点仍匹配 → 再编译。
+AOXI_PACKAGE_COMMIT="2121c2393259492e8c4f360775a2c3bc9fdd4370"
+git clone --no-checkout https://github.com/aoxijy/aoxi-package.git package/aoxi-package
+git -C package/aoxi-package checkout --detach "$AOXI_PACKAGE_COMMIT"
+test "$(git -C package/aoxi-package rev-parse HEAD)" = "$AOXI_PACKAGE_COMMIT"
 
 # 更新并安装源
 ./scripts/feeds clean
