@@ -66,6 +66,15 @@ case "$1" in
     ;;
 esac
 
+# ruby-json 是测速/选路部分的依赖；缺了就让模型退场（把分组交回内核），不要让分组卡死
+if [ "$1" != "watchdog" ] && [ "$1" != "revert" ] && [ "$1" != "convert" ]; then
+  if ! ruby -e 'require "json"' >/dev/null 2>&1; then
+    echo "[oc-smart] 缺少 ruby-json（opkg install ruby-json）→ 把被接管的组交回内核自管"
+    ruby /etc/openclash/custom/oc-smart.rb revert
+    exit 1
+  fi
+fi
+
 # 加锁，避免 cron 与手动执行撞车
 mkdir -p /tmp/lock
 if command -v flock >/dev/null 2>&1; then

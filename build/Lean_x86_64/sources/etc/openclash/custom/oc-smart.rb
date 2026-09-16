@@ -16,7 +16,12 @@
 #
 # 依赖：ruby（OpenClash 本身就要）、mihomo 的 external-controller API
 
-require 'json'
+begin
+  require 'json'
+  HAVE_JSON = true
+rescue LoadError
+  HAVE_JSON = false
+end
 require 'yaml'
 
 CONF_FILE = '/etc/openclash/custom/oc-smart.conf'
@@ -178,16 +183,20 @@ def api_get(path, max_time: 30)
 end
 
 def api_put(path, body)
+  return [1, nil] unless HAVE_JSON
+
   curl(['-X', 'PUT', '-H', 'Content-Type: application/json', '-d', JSON.generate(body),
         "#{API_BASE}#{path}"], max_time: 10)
 end
 
 def fetch_proxies
+  return nil unless HAVE_JSON
+
   code, body = api_get('/proxies')
   return nil unless code.zero? && body && !body.empty?
 
   JSON.parse(body)['proxies'] || {}
-rescue JSON::ParserError
+rescue StandardError
   nil
 end
 
@@ -203,6 +212,8 @@ end
 
 # 测一个节点的延迟：返回 ms(Integer) 或 nil(超时/失败)
 def test_delay(name, url = nil, expected = nil, timeout = nil)
+  return nil unless HAVE_JSON
+
   url ||= CONF['TEST_URL']
   tmo = (timeout || CONF['TIMEOUT']).to_i
   q = "timeout=#{tmo}&url=#{enc(url)}"
@@ -213,12 +224,12 @@ def test_delay(name, url = nil, expected = nil, timeout = nil)
 
   d = JSON.parse(body)['delay']
   d.is_a?(Numeric) ? d.to_i : nil
-rescue JSON::ParserError
+rescue StandardError
   nil
 end
 
 def load_json(path, fallback)
-  return fallback unless File.exist?(path)
+  return fallback unless HAVE_JSON && File.exist?(path)
 
   JSON.parse(File.read(path))
 rescue StandardError
@@ -226,6 +237,8 @@ rescue StandardError
 end
 
 def save_json(path, data)
+  return unless HAVE_JSON
+
   mkdir_p(File.dirname(path))
   tmp = "#{path}.tmp#{Process.pid}"
   File.write(tmp, JSON.generate(data))
@@ -546,6 +559,8 @@ end
 PANEL_JSON = '/usr/share/openclash/ui/mrs-panel/history.json'
 
 def write_panel_json(proxies, hist, groups)
+  return unless HAVE_JSON
+
   min_samples = CONF['MIN_SAMPLES'].to_i
   scores = {}
   nodes = {}
@@ -694,6 +709,11 @@ if %w[convert revert].include?(cmd)
     log "[#{cmd}] 改的是配置文件，需要热重载或重启 OpenClash 生效"
   end
   exit 0
+end
+
+unless HAVE_JSON
+  abort '[oc-smart] 缺少 ruby-json 库（opkg install ruby-json）；' \
+        'convert/revert 仍然可用，其余命令不可用'
 end
 
 proxies = fetch_proxies
