@@ -524,7 +524,9 @@ jobs:
       uses: shidahuilang/delete-older-releases@main
       if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
       with:
-        keep_latest: 20
+        # 保留最近 50 份 release（注意是"全部变体加起来的 release 总数"，
+        # 一次编译会发布 4 个变体 = 4 份，所以 50 份 ≈ 最近 12 轮编译）
+        keep_latest: 50
         delete_tags: true
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
