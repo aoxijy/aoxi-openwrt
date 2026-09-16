@@ -664,6 +664,66 @@ def prune_history(hist, proxies, groups)
   removed
 end
 
+# ---------- 快速守护 ----------
+# 只测"每个被接管分组当前选中的节点"（每分钟一次，最多 6 次请求），
+# 连续两次不通就立刻换成"最近一次通过"的候选 —— 不用等整轮 cycle（5 分钟太久，
+# 实测遇到过节点在两次测速之间死掉：测速记录还很好看，但真实流量已经 i/o timeout）。
+def run_guard(groups, proxies)
+  hist = history
+  state = load_json(STATE_FILE, { 'groups' => {} })
+  state['groups'] ||= {}
+  min_samples = CONF['MIN_SAMPLES'].to_i
+  switched = 0
+
+  groups.each do |g|
+    info = proxies[g]
+    next unless info && info['type'] == 'Selector'
+
+    cur = info['now']
+    next if cur.nil? || NEVER.include?(cur)
+
+    turl, texp, tmo = group_test_target(g)
+    ms = test_delay(cur, turl, texp, tmo)
+    bucket = (hist['by_url'][turl] ||= {})
+    rec = (bucket[cur] ||= [])
+    rec << { 't' => Time.now.to_i, 'ms' => ms }
+    rec.shift while rec.size > HISTORY_N
+    next if ms   # 通的就不折腾
+
+    tail = rec.last(2)
+    next unless tail.size == 2 && tail.all? { |r| r['ms'].nil? }
+
+    cands = (info['all'] || []).reject { |x| NEVER.include?(x) }
+                              .map { |x| [x, candidate_score(proxies, hist, x, min_samples, turl), last_rec(hist, turl, x)] }
+                              .select { |_x, sc, lr| sc && lr && lr['ms'] }
+                              .sort_by { |_x, sc, _lr| sc[:score] }
+    best = cands.first
+    if best.nil?
+      log "[guard] #{g}: 当前「#{cur}」连续两次不通，但还没有「最近一次通过」的候选"
+      next
+    end
+
+    code, _b = api_put("/proxies/#{enc(g)}", { 'name' => best[0] })
+    if code.zero?
+      log "[guard] #{g}: 当前「#{cur}」连续两次不通 → 立刻切到「#{best[0]}」#{fmt(best[1])}"
+      st = state['groups'][g] ||= {}
+      st['set'] = best[0]
+      st['last_switch'] = Time.now.to_i
+      st.delete('manual_at')
+      switched += 1
+    else
+      log "[guard] #{g}: 切换到「#{best[0]}」失败（HTTP 退出码 #{code}）"
+    end
+  end
+
+  hist['updated'] = Time.now.to_i
+  save_json(HISTORY_FILE, hist)
+  save_json(STATE_FILE, state)
+  proxies = fetch_proxies || proxies
+  write_panel_json(proxies, hist, groups)
+  log "[guard] 检查 #{groups.size} 个组，立即切换 #{switched} 个" if switched.positive?
+end
+
 # ---------- status ----------
 def run_status(groups, proxies)
   hist = history
@@ -723,6 +783,8 @@ groups = resolve_groups(proxies)
 node_groups = groups   # 兜底用
 
 case cmd
+when 'guard'
+  run_guard(groups, proxies)
 when 'cycle'
   ensure_groups_selectable(groups, proxies)
   proxies = fetch_proxies || proxies
@@ -754,5 +816,5 @@ when 'type'
   # 看看这些组现在是什么类型（模型只能控制 select 组）
   groups.each { |g| puts format('%-16s %s  (成员 %d)', g, proxies[g]['type'], (proxies[g]['all'] || []).size) }
 else
-  abort "用法: #{$PROGRAM_NAME} [cycle|select|status|type|convert|revert|reset]（convert/revert 不需要 API）"
+  abort "用法: #{$PROGRAM_NAME} [cycle|guard|select|status|type|convert|revert|reset]（convert/revert 不需要 API）"
 end

@@ -16,6 +16,7 @@
 #   oc-smart.sh revert          改回 url-test（交回 mihomo 自己测速）
 #   oc-smart.sh reset           清空测试记录
 #   oc-smart.sh watchdog         兜底：模型太久没更新就把分组交回内核(url-test)
+#   oc-smart.sh guard            快速守护：只查当前节点，连续两次不通就立刻换（cron 每分钟）
 #   oc-smart.sh --install-cron  装定时任务（间隔看 oc-smart.conf 的 CYCLE_MIN）
 #   oc-smart.sh --remove-cron   卸掉定时任务
 #
@@ -52,13 +53,14 @@ case "$1" in
     [ -z "$INTERVAL" ] && INTERVAL=5
     echo "*/$INTERVAL * * * * /etc/openclash/custom/oc-smart.sh cycle >/dev/null 2>&1 #oc-smart-selfrun" >> "$CRON"
     grep -q "oc-smart-watchdog" "$CRON" 2>/dev/null || echo "*/10 * * * * /etc/openclash/custom/oc-smart.sh watchdog >/dev/null 2>&1 #oc-smart-watchdog" >> "$CRON"
+    grep -q "oc-smart-guard" "$CRON" 2>/dev/null || echo "* * * * * /etc/openclash/custom/oc-smart.sh guard >/dev/null 2>&1 #oc-smart-guard" >> "$CRON"
     crontab "$CRON" 2>/dev/null
     /etc/init.d/cron restart >/dev/null 2>&1
-    echo "[oc-smart] 已安装定时任务：每 $INTERVAL 分钟一轮 + 每 10 分钟看门狗"
+    echo "[oc-smart] 已安装定时任务：每 $INTERVAL 分钟一轮 + 每分钟快速守护 + 每 10 分钟看门狗"
     exit 0
     ;;
   --remove-cron)
-    sed -i '/oc-smart-selfrun/d;/oc-smart-watchdog/d' "$CRON" 2>/dev/null
+    sed -i '/oc-smart-selfrun/d;/oc-smart-watchdog/d;/oc-smart-guard/d' "$CRON" 2>/dev/null
     crontab "$CRON" 2>/dev/null
     /etc/init.d/cron restart >/dev/null 2>&1
     echo "[oc-smart] 已移除定时任务"
