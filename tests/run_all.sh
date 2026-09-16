@@ -4,6 +4,7 @@
 # 覆盖的问题（都是实际踩过的坑）：
 #   · J-Box 变体混进 OpenClash          → tests/test_jbox_targets.py
 #   · 公开镜像里带固定凭据（密钥泄露）   → tests/test_no_credentials.py
+#   · 公开镜像里带节点配置（订阅泄露）   → tests/test_no_node_config.py
 #   · OpenClash 升级后 LuCI 补丁锚点失配 → tests/test_luci_panel_patch.py
 #   · 面板密钥生成/注入逻辑坏掉          → tests/test_panel_secret.sh
 #
@@ -60,6 +61,7 @@ else
 fi
 
 run_py "公开镜像不含固定凭据" tests/test_no_credentials.py
+run_py "公开镜像不含节点配置" tests/test_no_node_config.py
 run_py "LuCI MRS 面板补丁锚点 + 幂等" tests/test_luci_panel_patch.py
 run_sh "面板密钥生成/注入" tests/test_panel_secret.sh
 

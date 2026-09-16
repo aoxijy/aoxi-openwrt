@@ -19,9 +19,10 @@
 - 固件已预置 **13 个分类 `.mrs` 规则集**（AI平台 / 社交聊天 / 开发平台 / 国外媒体 / 微软苹果 / 全球直连 / 全球拦截），
   来源 [aoxijy/guize](https://github.com/aoxijy/guize) 的 `mrs-latest` Release，另有本地备份 + 兜底 cron，断网也能启动
 - 内核用 **MetaCubeX mihomo**（`v1.19.30`，`format: mrs` 需要 mihomo ≥ 1.18.3），由 `custom.sh` 在编译时下载
-- 默认配置（节点）从仓库密钥 `OPENCLASH_CONFIG` 注入 —— 内容为 `base64(gzip(配置文件))`，
-  **公开仓库里不出现任何节点信息**；换配置时重新设置密钥再编译即可
+- **节点配置不进固件**：镜像里没有任何 Clash 配置，刷完机用 `oc-mrs-import.sh`（U 盘 / 局域网）或 LuCI 上传导入；
+  工作流里也没有配置注入入口，`tests/test_no_node_config.py` 会在编译前断言这一点（详见下面「节点配置怎么来」）
 - 首次开机由 `/etc/uci-defaults/97-openclash-mrs` 自动完成：打 YAML.rb 补丁 → 铺开规则集备份 → 装兜底 cron → 配置严格模式瘦身
+  → 装 MRS 面板入口 → 分组改 `select` 并装选路模型 cron → 生成设备专属随机密钥
 - 开箱即用的配置长这样：`rules:` 只有 **13 条 `RULE-SET` + 1 条 `MATCH`**，规则总量 ≈ 4.8 万条全部由 `.mrs` 提供
   （原来 47 111 条内联规则、2.7 MB 的 yaml → 现在 14 条、89 KB）
 - 默认已**关闭**「覆写设置 → 启用 GeoIP Dat 版数据库」（`enable_geoip_dat=0`）——规则已经全部走 `.mrs`，不需要 geo 数据
@@ -65,28 +66,24 @@ tail -f /tmp/openclash_smart.log                    # 模型日志
 **想给别的分组也配专用测速地址**：在 `/etc/openclash/custom/oc-smart.conf` 里加一行
 `GROUP_TEST_URL=组名|地址|期望状态码|超时ms`，然后 `oc-smart.sh --install-cron` 不用重装，下一轮自动生效。
 
-### 节点配置怎么来（⚠️ 别把节点打进公开镜像）
+### 节点配置怎么来（🚫 节点一律不进固件）
 
 固件镜像会发布到 **公开的 Releases**，任何人下载后解包就能看到里面的文件。
-所以**默认不把节点配置打进固件**（和 EasyTier / NPS 一样「服务器地址不预置防泄露」）。
-规则集、内核、脚本已经全部就绪，刷完机给配置有三种方式：
+所以**节点配置绝对不会打进固件**，这已经做成结构性约束，不是"记得别设密钥"：
+
+- 工作流里**没有**任何注入 Clash 配置的步骤（原来的 `OPENCLASH_CONFIG` 入口已删除）；
+- 每台设备首启时用 `oc-mrs-import.sh` 从本地导入，或直接在 LuCI 里上传；
+- 编译前会跑 `tests/test_no_node_config.py` 断言：交付目录里没有 Clash 配置、
+  没有节点协议链接（`vless://` `ss://` …）、没有顶层 `proxies:` / `proxy-groups:`，
+  工作流里也不存在配置注入入口 —— 一旦有人加回来，编译直接失败。
+
+刷完机给配置有两种方式：
 
 | 方式 | 说明 |
 |---|---|
-| **A. 手动导入（默认）** | LuCI → OpenClash → 配置文件 → 上传 `zhu5in1.yaml`；或 `scp zhu5in1.yaml root@<路由>:/etc/openclash/config/` 后重载配置。导入即可用 |
+| **A. 手动导入** | LuCI → OpenClash → 配置文件 → 上传 `zhu5in1.yaml`；或 `scp zhu5in1.yaml root@<路由>:/etc/openclash/config/` 后重载配置 |
 | **B. U 盘 / 局域网自动导入** | 把 `zhu5in1.yaml` 放 U 盘根目录（或 U 盘 `/openclash/` 目录），或者把局域网下载地址写进 `/etc/openclash/custom/oc-config-url`（一行 http 地址）；首次开机 `oc-mrs-import.sh` 自动导入，之后再按严格模式瘦身 |
-| **C. 编译时注入（省事但会泄露）** | 设置仓库密钥 `OPENCLASH_CONFIG=base64(gzip(配置))`，编译时写进镜像。⚠️ **这样公开的 release 镜像里可以直接提取出你的节点密码** |
-
-方式 C 的开关：
-
-```sh
-# 打开
-gzip -9c zhu5in1.yaml | base64 -w0 > oc-config.b64
-gh secret set OPENCLASH_CONFIG -R aoxijy/aoxi-openwrt < oc-config.b64
-gh workflow run openwrt.yml -R aoxijy/aoxi-openwrt -f Lean_x86_64=true
-# 关掉（推荐保持关闭，用方式 A/B）
-gh secret delete OPENCLASH_CONFIG -R aoxijy/aoxi-openwrt
-```
+| **C. 要批量刷机** | 用 NAS 上的离线包装好配置（`openclash-fresh-kit-x86_64.tar.gz` 里含私有配置），别再往公开仓库里塞 |
 
 ## 插件预览 [![](https://img.shields.io/badge/-固件插件及功能预览-FFFFFF.svg)](#插件预览-)
 - ******此库为单独X86版******

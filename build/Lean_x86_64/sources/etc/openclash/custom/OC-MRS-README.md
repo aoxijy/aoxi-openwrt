@@ -389,6 +389,7 @@ tar xzf openclash-fresh-kit-x86_64.tar.gz && cd <解包目录> && sh install-off
 | 检查 | 防的是什么 |
 |---|---|
 | `test_no_credentials.py` | 公开镜像里出现固定密钥（真出过事，见第 10 节） |
+| `test_no_node_config.py` | 公开镜像里出现**节点配置**（订阅泄露）—— 含工作流里的注入入口 |
 | `test_luci_panel_patch.py` | OpenClash 升级后 LuCI 补丁锚点失配、面板入口静默消失 |
 | `test_panel_secret.sh` | 面板密钥生成/注入逻辑坏掉 |
 | `test_jbox_targets.py` | J-Box 变体混进 OpenClash；`aoxi-package` 没锁提交 |
@@ -406,6 +407,16 @@ tar xzf openclash-fresh-kit-x86_64.tar.gz && cd <解包目录> && sh install-off
 
 生成后脚本会把密钥**写进 MRS 面板**（替换 `index.html` 里的 `__MRS_SECRET__` 占位符），
 所以打开面板就能用，不用手抄；你在 OpenClash 设置里改了密码，钩子下次会同步过去。
+
+### 🚫 节点配置同样一律不进镜像（结构性保证）
+
+镜像会发到公开 Releases，所以节点（服务器地址/uuid/密码）**绝不能进固件**：
+
+- 工作流里**没有**任何注入 Clash 配置的步骤（原先的 `OPENCLASH_CONFIG` 入口已删除）；
+- 交付目录里不存在 Clash 配置文件，编译前 `tests/test_no_node_config.py` 会断言：
+  没有配置文件、没有节点协议链接（`vless://` `ss://` …）、没有顶层 `proxies:` / `proxy-groups:`，
+  且工作流里不存在配置注入入口 —— 一旦有人加回来，编译直接失败；
+- 节点在**设备上**导入：U 盘 / 局域网（`oc-mrs-import.sh`，见第 8 节）或 LuCI 上传。
 
 > 为什么要这么做：第一版把路由器上的 `etc/config/openclash` 直接搬进了仓库，
 > 结果 API 密钥和代理认证密码都写在了 GitHub 上，**所有刷这个固件的设备共用一份公开密钥**。

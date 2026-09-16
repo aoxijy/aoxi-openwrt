@@ -117,32 +117,13 @@ jobs:
         echo "HOME=${GITHUB_WORKSPACE}/openwrt" >> $GITHUB_ENV
         echo "WORKPATH=${GITHUB_WORKSPACE}/openwrt/build/${{matrix.target}}" >> $GITHUB_ENV
 
-    - name: 编译前自检（凭据泄露 / LuCI 补丁锚点 / 面板密钥 / J-Box 契约）
+    # 注意：这里**故意没有**"注入 Clash 配置"的步骤 —— 节点配置一律不进固件镜像。
+    # tests/test_no_node_config.py 会在编译前断言这一点（含工作流本身）。
+    - name: 编译前自检（凭据泄露 / 节点配置 / LuCI 补丁锚点 / 面板密钥 / J-Box 契约）
       run: |
         # Ruby 用来跑 LuCI 补丁预演；装不上也不阻塞（对应测试会自动跳过）
         command -v ruby >/dev/null 2>&1 || sudo apt-get install -y ruby >/dev/null 2>&1 || true
         sh tests/run_all.sh
-
-    - name: 注入 OpenClash 配置（来自仓库密钥，公开仓库里不含节点信息）
-      if: ${{ !contains(matrix.target, 'JBox') }}
-      env:
-        OC_CONFIG_B64: ${{ secrets.OPENCLASH_CONFIG }}
-      run: |
-        DEST="${GITHUB_WORKSPACE}/build/${{ matrix.target }}/files/etc/openclash/config"
-        mkdir -p "$DEST"
-        if [ -z "$OC_CONFIG_B64" ]; then
-          echo "::warning::仓库未设置 OPENCLASH_CONFIG 密钥，固件将不带默认 Clash 配置"
-          exit 0
-        fi
-        printf '%s' "$OC_CONFIG_B64" | base64 -d | gzip -dc > "$DEST/zhu5in1.yaml"
-        if grep -q "^proxies:" "$DEST/zhu5in1.yaml" && grep -q "^proxy-groups:" "$DEST/zhu5in1.yaml"; then
-          echo "已注入 Clash 配置: $(wc -c < "$DEST/zhu5in1.yaml") bytes"
-          echo "节点数: $(grep -c "^  - name:\|^- name:" "$DEST/zhu5in1.yaml" || true)"
-        else
-          rm -f "$DEST/zhu5in1.yaml"
-          echo "::error::OPENCLASH_CONFIG 解出来的内容不像 Clash 配置，已丢弃"
-          exit 1
-        fi
 
     - name: 清理编译缓存（如需要）
       if: env.CLEAN_CACHE == 'true'
