@@ -188,6 +188,18 @@ def main() -> int:
         cfg = (ROOT / "build" / name / "sources" / "etc" / "config" / "openclash").read_text(encoding="utf-8")
         if "config_path '/etc/openclash/config/zhu5in1.yaml'" not in cfg:
             fail(f"{name}: uci 未指定 config_path")
+        # 规则已全部走 .mrs，不需要 GeoIP.dat；勾上反而会去找已经不预置的 geo 数据
+        if "option enable_geoip_dat '0'" not in cfg:
+            fail(f"{name}: 应默认关闭「启用 GeoIP Dat 版数据库」")
+        # Fake-IP-Filter 必须开启，否则自建服务域名会被 fake-ip 接管
+        if "option custom_fakeip_filter '1'" not in cfg:
+            fail(f"{name}: 应默认开启 Fake-IP-Filter")
+        if "option custom_fakeip_filter_mode 'blacklist'" not in cfg:
+            fail(f"{name}: Fake-IP-Filter 模式应为 blacklist")
+        fake_list = (base / "custom" / "openclash_custom_fake_filter.list").read_text(encoding="utf-8")
+        for dom in ("+.gqru.com", "*.gqru.com", "+.jgyu.com", "*.jgyu.com"):
+            if f"\n{dom}\n" not in f"\n{fake_list}":
+                fail(f"{name}: fake-ip-filter 列表缺少 {dom}")
         for geo in ("GeoIP.dat", "GeoSite.dat", "Country.mmdb", "ASN.mmdb"):
             if (base / geo).exists():
                 fail(f"{name}: 不该再预置 {geo}")

@@ -24,6 +24,9 @@
 - 首次开机由 `/etc/uci-defaults/97-openclash-mrs` 自动完成：打 YAML.rb 补丁 → 铺开规则集备份 → 装兜底 cron → 配置严格模式瘦身
 - 开箱即用的配置长这样：`rules:` 只有 **13 条 `RULE-SET` + 1 条 `MATCH`**，规则总量 ≈ 4.8 万条全部由 `.mrs` 提供
   （原来 47 111 条内联规则、2.7 MB 的 yaml → 现在 14 条、89 KB）
+- 默认已**关闭**「覆写设置 → 启用 GeoIP Dat 版数据库」（`enable_geoip_dat=0`）——规则已经全部走 `.mrs`，不需要 geo 数据
+- 默认已**开启**「覆写设置 → DNS 设置 → Fake-IP-Filter」（`custom_fakeip_filter=1` + `blacklist`），并在自定义列表里预置
+  `+.gqru.com` / `*.gqru.com` / `+.jgyu.com` / `*.jgyu.com` —— 这几个域名必须走真实 IP，否则 EasyTier 解析不到服务器、连不上
 - ⚠️ 已**移除** `GeoIP.dat` / `GeoSite.dat` / `Country.mmdb` / `ASN.mmdb`（每个变体省 46 MB）与
   `.github/workflows/update-geoip.yml` 定时更新：严格模式配置里没有任何 `GEOIP/GEOSITE/IP-ASN` 规则，
   实测把 4 个文件删掉后 `mihomo -t` 依然 successful。以后若要加 GEOIP 规则，联网时 mihomo 会自行下载
