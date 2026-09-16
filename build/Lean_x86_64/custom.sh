@@ -18,6 +18,13 @@ git clone --no-checkout https://github.com/aoxijy/aoxi-package.git package/aoxi-
 git -C package/aoxi-package checkout --detach "$AOXI_PACKAGE_COMMIT"
 test "$(git -C package/aoxi-package rev-parse HEAD)" = "$AOXI_PACKAGE_COMMIT"
 
+# 去掉 OpenClash 包自带的 geo 数据（GeoSite.dat 10.4MB + Country.mmdb 0.2MB）：
+# 规则已全部走 .mrs、uci 里也关了「启用 GeoIP Dat 版数据库」，实测删掉后内核照样正常启动，
+# 留着只是白占镜像空间。包的 Makefile 是 `$(CP) root/*` 通配复制，所以删源文件就能不带进镜像。
+# （GeoIP.dat / ASN.mmdb 本来就不存在，不需要处理。）
+rm -f package/aoxi-package/luci-app-openclash/root/etc/openclash/GeoSite.dat \
+      package/aoxi-package/luci-app-openclash/root/etc/openclash/Country.mmdb
+
 # 更新并安装源
 ./scripts/feeds clean
 ./scripts/feeds update -a && ./scripts/feeds install -a -f

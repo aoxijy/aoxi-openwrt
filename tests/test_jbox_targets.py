@@ -220,6 +220,12 @@ def main() -> int:
         for geo in ("GeoIP.dat", "GeoSite.dat", "Country.mmdb", "ASN.mmdb"):
             if (base / geo).exists():
                 fail(f"{name}: 不该再预置 {geo}")
+        # 我们自己不预置了，但 luci-app-openclash 包里还自带 GeoSite.dat + Country.mmdb，
+        # 必须在 custom.sh 里从包源码删掉，否则镜像里照样有 10.6MB 用不到的 geo 数据
+        csh = (ROOT / "build" / name / "custom.sh").read_text(encoding="utf-8")
+        for geo in ("GeoSite.dat", "Country.mmdb"):
+            if f"luci-app-openclash/root/etc/openclash/{geo}" not in csh:
+                fail(f"{name}: custom.sh 未从 openclash 包里去掉 {geo}")
     for name in TARGETS:
         if (ROOT / "build" / name / "sources" / "etc" / "openclash").exists():
             fail(f"J-Box 目标 {name} 不应包含 OpenClash 数据")
