@@ -1,0 +1,62 @@
+<%
+local fs = require "luci.openclash"
+local NXFS = require "nixio.fs"
+local SYS = require "luci.sys"
+
+local cn_port = fs.uci_get_config("config", "cn_port") or "9090"
+local has_panel = NXFS.access("/usr/share/openclash/ui/mrs-panel/index.html")
+local has_smart = NXFS.access("/etc/openclash/custom/oc-smart.rb")
+local has_cron = (SYS.exec("crontab -l 2>/dev/null | grep -c oc-smart-selfrun") or "0"):gsub("%s", "")
+local default_dashboard = fs.uci_get_config("config", "default_dashboard") or ""
+local is_default = (default_dashboard == "mrs-panel")
+
+local st = {}
+local raw = NXFS.readfile("/etc/openclash/smart/status.txt")
+if raw then
+  for line in raw:gmatch("[^\n]+") do
+    local k, v = line:match("^([^=]+)=(.*)$")
+    if k then st[k] = v end
+  end
+end
+local updated = tonumber(st.updated) and os.date("%m-%d %H:%M", tonumber(st.updated)) or "-"
+local chatgpt_now = st["now.🕸️ CHATGPT自动"] or "-"
+local chatgpt_stat = st["stat.https://chatgpt.com/cdn-cgi/trace"] or "-"
+local gen_stat = st["stat.http://www.gstatic.com/generate_204"] or "-"
+local function dot(ok) return ok and '<span style="color:#2ecc71;font-size:15px">&#9679;</span>' or '<span style="color:#e74c3c;font-size:15px">&#9679;</span>' end
+%>
+
+<fieldset class="cbi-section">
+  <legend><%:MRS Panel%></legend>
+  <table width="100%">
+    <tr>
+      <td style="padding:6px 0">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input type="button" class="btn cbi-button cbi-button-apply" value="<%:Open MRS Panel%>" onclick="return oc_open_mrs_panel(this)"/>
+          <% if is_default then %>
+            <span class="label label-success" style="color:#2ecc71">&#10003; <%:It is the default dashboard%></span>
+          <% end %>
+          <span style="color:#888"><%:Hover a delay bar to see the latest 10 tests%></span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;line-height:1.9;font-size:13px">
+        <%=dot(has_panel)%> <%:Panel files%> &nbsp;
+        <%=dot(has_smart)%> <%:Selection model%> &nbsp;
+        <%=dot(has_cron ~= "0")%> <%:Cron%><% if has_cron ~= "0" then %> (<%:every 5 min%>)<% end %> &nbsp;
+        <span style="color:#888"><%:Last cycle%>: <b><%=updated%></b></span> &nbsp;
+        <span style="color:#888"><%:Nodes%>: <b><%=st.nodes or "-"%></b></span> &nbsp;
+        <span style="color:#888"><%:Test URLs%>: <b><%=st.test_urls or "-"%></b></span>
+        <br/>
+        <span style="color:#888">🕸️ CHATGPT自动 &rarr; <b><%=chatgpt_now%></b>（<%:passing%> <b><%=chatgpt_stat%></b>，<%:generic URL%> <b><%=gen_stat%></b>）</span>
+      </td>
+    </tr>
+  </table>
+</fieldset>
+
+<script type="text/javascript">//<![CDATA[
+function oc_open_mrs_panel() {
+  window.open('http://' + location.hostname + ':<%=cn_port%>/ui/mrs-panel/', '_blank');
+  return false;
+}
+//]]></script>

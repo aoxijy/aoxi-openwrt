@@ -341,6 +341,8 @@ EOF
 cat >> .config <<EOF
 # CONFIG_PACKAGE_luci-app-oaf is not set
 CONFIG_PACKAGE_luci-app-openclash=y
+# MRS 延迟面板/选路模型需要 ruby 的 json 库（OpenWrt 把 ruby 标准库拆包了）
+CONFIG_PACKAGE_ruby-json=y
 # CONFIG_PACKAGE_luci-app-nikki is not set
 # CONFIG_PACKAGE_luci-app-serverchan is not set
 # CONFIG_PACKAGE_luci-app-eqos is not set

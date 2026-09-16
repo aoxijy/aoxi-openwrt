@@ -31,6 +31,40 @@
   `.github/workflows/update-geoip.yml` 定时更新：严格模式配置里没有任何 `GEOIP/GEOSITE/IP-ASN` 规则，
   实测把 4 个文件删掉后 `mihomo -t` 依然 successful。以后若要加 GEOIP 规则，联网时 mihomo 会自行下载
 
+### MRS 延迟面板 + 节点选路模型（刷完即用）
+
+固件预置了一整套"延迟记录面板 + 节点自动优选"，首次开机全部自动就位：
+
+| 组件 | 位置 | 作用 |
+|---|---|---|
+| **MRS 延迟面板** | `http://<路由>:9090/ui/mrs-panel/` | 每个分组的节点表：最新延迟 + **最近 10 次连通记录色条** + 模型得分；**鼠标悬停看这 10 次明细**（时间/延迟/超时）。也可设为默认面板，之后 OpenClash 自己的「控制面板」按钮就打开它 |
+| **LuCI 入口** | 服务 → OpenClash → **控制面板**（首页卡片）、**覆写设置 → Dashboard 设置**（可"设为默认面板"） | 首页卡片有 4 个状态点：面板文件 / 选路模型 / 定时任务 / 最近一轮时间与通过率，一眼看出是否生效 |
+| **选路模型** | `/etc/openclash/custom/oc-smart.{rb,sh,conf}` | 每 5 分钟给被接管分组的成员测速，每节点保留最近 10 条；按 `延迟 + 2×抖动 + 超时惩罚` 算分，在**每个分组自己的成员里**挑最优（绝不跨组），当前节点没有明显更差就不切 |
+| **看门狗** | 每 10 分钟 | 状态文件超过 30 分钟没更新（模型挂了）→ 自动把分组交回内核 `url-test` 自管，模型恢复后自动再接管 |
+| **分组专用测速地址** | `oc-smart.conf` 的 `GROUP_TEST_URL` | 默认给 `🕸️ CHATGPT自动` 配 `https://chatgpt.com/cdn-cgi/trace` + `expected=200` + 10s 超时（通用地址通了不代表能开 ChatGPT）。回退到 `url-test` 时也会带上这个地址与期望状态码 |
+
+**内置的稳定性设计**
+
+- 测速**同一台服务器串行**（实测 198 个"节点"只对应 93 台服务器，一台最多挂 34 个，并发打同一台会被限速）
+- **换节点/换整套配置自适应**：成员变动自动跟上；组类型被打回 `url-test` 会自动转回 `select` 并热重载；记录按"测速地址"分桶，离开分组的节点自动清理
+- **不跟用户抢**：手动选过的分组让位 5 分钟；`oc-smart.sh select --force` 可强制按模型结果重选
+- 规则、脚本、面板全部本地化，**断网也能用**
+
+**常用命令（路由器上）**
+
+```sh
+/etc/openclash/custom/oc-smart.sh status            # 每个分组：当前节点 / 得分 / 候选前三
+/etc/openclash/custom/oc-smart.sh cycle             # 立刻测一轮并重选
+/etc/openclash/custom/oc-smart.sh select --force    # 忽略"手动让位"，强制按模型重选
+/etc/openclash/custom/oc-smart.sh revert            # 交回内核 url-test 自管（仍用专用测速地址）
+/etc/openclash/custom/oc-smart.sh watchdog          # 看门狗自检
+/etc/openclash/custom/oc-luci-panel.rb status       # LuCI 面板 5 项补丁是否就绪（升级 OpenClash 后重跑 install）
+tail -f /tmp/openclash_smart.log                    # 模型日志
+```
+
+**想给别的分组也配专用测速地址**：在 `/etc/openclash/custom/oc-smart.conf` 里加一行
+`GROUP_TEST_URL=组名|地址|期望状态码|超时ms`，然后 `oc-smart.sh --install-cron` 不用重装，下一轮自动生效。
+
 ### 节点配置怎么来（⚠️ 别把节点打进公开镜像）
 
 固件镜像会发布到 **公开的 Releases**，任何人下载后解包就能看到里面的文件。

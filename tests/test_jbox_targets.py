@@ -180,9 +180,26 @@ def main() -> int:
         if len(backup) != 14:
             fail(f"{name}: mrs 本地备份应为 14 个，实际 {len(backup)}")
         for script in ("oc-mrs-slim.sh", "oc-mrs-restore.sh", "oc-mrs-fetch.sh",
-                       "oc-patch-yamlrb.sh", "oc-mrs-import.sh", "oc_mrs_slim.rb", "openclash_custom_overwrite.sh"):
+                       "oc-patch-yamlrb.sh", "oc-mrs-import.sh", "oc_mrs_slim.rb", "openclash_custom_overwrite.sh",
+                       "oc-smart.rb", "oc-smart.sh", "oc-smart.conf", "oc-luci-panel.rb"):
             if not (base / "custom" / script).is_file():
                 fail(f"{name}: 缺少 OpenClash mrs 脚本 {script}")
+        # MRS 延迟面板：模板 + 面板页面 + LuCI 入口 + 选路模型接线
+        for tpl in ("mrs_panel.htm", "mrs_panel_setting.htm"):
+            if not (base / "custom" / "luci" / tpl).is_file():
+                fail(f"{name}: 缺少 LuCI 模板 luci/{tpl}")
+        if not (ROOT / "build" / name / "sources" / "usr/share/openclash/ui/mrs-panel/index.html").is_file():
+            fail(f"{name}: 缺少 MRS 延迟面板 index.html")
+        uci_defaults = (ROOT / "build" / name / "sources" / "etc" / "uci-defaults" / "97-openclash-mrs").read_text(encoding="utf-8")
+        for needle in ("oc-luci-panel.rb install", "convert", "--install-cron"):
+            if needle not in uci_defaults:
+                fail(f"{name}: 首启脚本缺少步骤 {needle}")
+        hook = (base / "custom" / "openclash_custom_overwrite.sh").read_text(encoding="utf-8")
+        if "oc-luci-panel.rb install" not in hook or "convert" not in hook:
+            fail(f"{name}: OpenClash 钩子未接入面板补丁/分组对齐")
+        cfg_sh = (ROOT / "build" / name / "custom.sh").read_text(encoding="utf-8")
+        if "CONFIG_PACKAGE_ruby-json=y" not in cfg_sh:
+            fail(f"{name}: 未启用 ruby-json 依赖")
         if not (ROOT / "build" / name / "sources" / "etc" / "uci-defaults" / "97-openclash-mrs").is_file():
             fail(f"{name}: 缺少首次启动脚本 97-openclash-mrs")
         cfg = (ROOT / "build" / name / "sources" / "etc" / "config" / "openclash").read_text(encoding="utf-8")

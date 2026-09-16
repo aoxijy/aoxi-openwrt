@@ -1,0 +1,50 @@
+<%
+local fs = require "luci.openclash"
+local NXFS = require "nixio.fs"
+local cn_port = fs.uci_get_config("config", "cn_port") or "9090"
+local default_dashboard = fs.uci_get_config("config", "default_dashboard") or ""
+local is_default = (default_dashboard == "mrs-panel")
+local has_panel = NXFS.access("/usr/share/openclash/ui/mrs-panel/index.html")
+%>
+
+<%+cbi/valueheader%>
+<div class="cbi-value-field" id="mrs_panel_field">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <input type="button" class="btn cbi-button cbi-button-apply" value="<%:Open MRS Panel%>" onclick="return oc_open_mrs_panel()"/>
+    <input type="button" class="btn cbi-button cbi-button-apply" id="mrs_panel_default_btn"
+           value="<%=is_default and translate('Default') or translate('Set to Default')%>"
+           onclick="return oc_mrs_panel_default(this)" <%=is_default and 'disabled' or ''%>/>
+    <span id="mrs_panel_hint" style="color:#888">
+      <% if not has_panel then %>
+        &#9888; <%:Panel not deployed%>
+      <% elseif is_default then %>
+        &#10003; <%:It is the default dashboard (control panel button opens it)%>
+      <% else %>
+        <%:MRS Panel is installed but not the default dashboard%>
+      <% end %>
+    </span>
+  </div>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+function oc_open_mrs_panel() {
+  window.open('http://' + location.hostname + ':<%=cn_port%>/ui/mrs-panel/', '_blank');
+  return false;
+}
+function oc_mrs_panel_default(btn) {
+  var hint = document.getElementById('mrs_panel_hint');
+  btn.disabled = true;
+  XHR.get('<%=luci.dispatcher.build_url("admin", "services", "openclash", "default_dashboard")%>', {name: 'MRSPanel'}, function(x, status) {
+    if (x && x.status == 200) {
+      btn.value = '<%:Default%>';
+      if (hint) hint.innerHTML = '&#10003; <%:It is the default dashboard (control panel button opens it)%>';
+    } else {
+      btn.disabled = false;
+      if (hint) hint.innerHTML = '<%:Set Failed%>';
+    }
+  });
+  return false;
+}
+//]]></script>
+
+<%+cbi/valuefooter%>

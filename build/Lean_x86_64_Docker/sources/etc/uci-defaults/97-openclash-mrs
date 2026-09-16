@@ -1,29 +1,49 @@
 #!/bin/sh
-# 由 aoxi-openwrt 固件预置：首次启动给 OpenClash 的 mrs 规则做准备工作
-#   · 让 OpenClash 自己生成的配置也用 UTF-8 写 emoji
-#   · 从本地备份补齐 .mrs 规则集缓存 + 装兜底 cron（全程不需要外网）
-#   · 把预置配置按严格模式瘦身（幂等）
-# 本脚本由 /etc/uci-defaults 机制在首次开机时执行一次，执行完会被删除。
+# 由 aoxi-openwrt 固件预置：首次启动给 OpenClash 做全部准备工作
+#   1) YAML.rb 补丁：让 OpenClash 生成的配置也用 UTF-8 写 emoji
+#   2) 从本地备份补齐 14 个 .mrs 规则集（不需要外网）+ 装兜底 cron
+#   3) 固件默认不带节点配置：没有配置时从 U 盘 / 局域网自动导入
+#   4) 规则严格模式瘦身（rules 只留 13 条 RULE-SET + MATCH）
+#   5) MRS 延迟面板：LuCI 入口（首页卡片 + 设置页项）+ 选路模型 + 定时任务
+# 本脚本由 /etc/uci-defaults 机制在首次开机时执行一次。
 
 [ -d /etc/openclash ] || exit 0
 
-# 1) YAML.rb 补丁：统一 emoji 写法（\U0001F916 -> UTF-8）
+SMART=/etc/openclash/custom/oc-smart.rb
+
+# 1) YAML.rb 补丁
 [ -x /etc/openclash/custom/oc-patch-yamlrb.sh ] && /etc/openclash/custom/oc-patch-yamlrb.sh
 
-# 2) 规则集缓存
+# 2) 规则集缓存 + 自愈
 if [ -x /etc/openclash/custom/oc-mrs-restore.sh ]; then
     /etc/openclash/custom/oc-mrs-restore.sh
     /etc/openclash/custom/oc-mrs-restore.sh --install-cron
 fi
 
-# 3) 没有预置配置时，尝试从 U 盘 / 局域网自动导入（固件默认不打包节点信息）
+# 3) 没有配置就尝试从 U 盘/局域网导入
 [ -x /etc/openclash/custom/oc-mrs-import.sh ] && /etc/openclash/custom/oc-mrs-import.sh
 
-# 4) 预置配置严格模式瘦身
+# 4) 严格模式瘦身
 CFG="$(uci -q get openclash.config.config_path)"
 [ -z "$CFG" ] && CFG="/etc/openclash/config/zhu5in1.yaml"
 if [ -f "$CFG" ] && [ -x /etc/openclash/custom/oc-mrs-slim.sh ]; then
     /etc/openclash/custom/oc-mrs-slim.sh "$CFG" --strict
+fi
+
+# 5) MRS 延迟面板 + 选路模型
+if [ -x /etc/openclash/custom/oc-luci-panel.rb ]; then
+    echo "[oc-mrs] 安装 MRS 延迟面板的 LuCI 入口..."
+    ruby /etc/openclash/custom/oc-luci-panel.rb install
+fi
+if [ -x "$SMART" ]; then
+    # 把被模型接管的分组改成 select（模型才能控制它们的选择）；
+    # 这一步不需要内核在跑，只改配置文件，OpenClash 首次启动时会用上。
+    echo "[oc-mrs] 把被接管的策略组改成 select..."
+    ruby "$SMART" convert
+    # 每 5 分钟测一轮 + 每 10 分钟看门狗（模型挂了就把分组交回内核）
+    if [ -x /etc/openclash/custom/oc-smart.sh ]; then
+        /etc/openclash/custom/oc-smart.sh --install-cron
+    fi
 fi
 
 exit 0
