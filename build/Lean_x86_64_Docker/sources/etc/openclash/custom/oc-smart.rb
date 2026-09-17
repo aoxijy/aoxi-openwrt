@@ -38,9 +38,15 @@ DEFAULTS = {
   'TOLERANCE_MS' => '30',                # 新节点至少比当前快这么多才切
   'TOLERANCE_PCT' => '10',               # 或者快 10% 以上
   'MIN_SWITCH_INTERVAL' => '120',        # 同一组两次自动切换的最小间隔(秒)
+  'HISTORY_MAX_AGE' => '3600',           # 评分只使用最近多少秒内的记录
   'MANUAL_HOLD' => '1800',               # 手动改过之后让位多久(秒)
   'CONCURRENCY' => '8',                  # 并发测速数
   'MIN_SAMPLES' => '3',                  # 至少几条记录才参与"稳定性"评选
+  # 僵尸节点快速跳过：连续失败这么多次、且刚测过不超过 DEAD_PROBE_MINUTES 分钟的节点，
+  # 本轮不再重测（成员资格和历史都保留，到点仍会复测，恢复后立刻回到候选池）
+  'DEAD_SKIP' => '1',
+  'DEAD_STREAK' => '3',
+  'DEAD_PROBE_MINUTES' => '25',
   # 模型接管的「节点级」分组（成员是真实节点）
   'NODE_GROUPS' => '♻️ 自动选择|♻️ 香港自动|♻️ 亚洲自动|♻️ 美国自动|♻️ 其他自动|🕸️ CHATGPT自动',
   # 模型接管的「分类级」分组（成员是别的分组），默认不接管
@@ -52,6 +58,7 @@ DEFAULTS = {
 def load_conf
   conf = DEFAULTS.dup
   group_urls = []
+  group_min_switch = []
   if File.exist?(CONF_FILE)
     File.readlines(CONF_FILE).each do |line|
       line = line.strip
@@ -65,10 +72,15 @@ def load_conf
         group_urls << v
         next
       end
+      if k == 'GROUP_MIN_SWITCH_INTERVAL'
+        group_min_switch << v
+        next
+      end
       conf[k] = v
     end
   end
   conf['GROUP_TEST_URLS'] = group_urls
+  conf['GROUP_MIN_SWITCH_INTERVALS'] = group_min_switch
   conf
 end
 
@@ -129,6 +141,28 @@ def group_timeout(group)
   t && t.positive? ? t : CONF['TIMEOUT'].to_i
 end
 
+# 分组 -> 最短切换间隔覆盖；没配就用全局 MIN_SWITCH_INTERVAL
+def build_group_min_switch_intervals
+  map = {}
+  (CONF['GROUP_MIN_SWITCH_INTERVALS'] || []).each do |entry|
+    parts = entry.split('|').map(&:strip)
+    next if parts.size < 2 || parts[0].to_s.empty?
+
+    map[parts[0]] = parts[1].to_i
+  end
+  map
+end
+
+def group_min_switch_intervals
+  @group_min_switch_intervals ||= build_group_min_switch_intervals
+end
+
+def group_min_switch_interval(group)
+  key = GROUP_CFG[group] || group
+  val = group_min_switch_intervals[key] || group_min_switch_intervals[group]
+  val && val.positive? ? val : CONF['MIN_SWITCH_INTERVAL'].to_i
+end
+
 def group_test_url(group)
   group_test_target(group)[0]
 end
@@ -141,6 +175,13 @@ FORCE = ARGV.include?('--force') || ENV['OC_SMART_FORCE'] == '1'
 HISTORY_N = CONF['HISTORY'].to_i
 GROUP_TYPES = %w[Selector URLTest Fallback LoadBalance Relay Compatible].freeze
 NEVER = CONF['NEVER'].split('|').map(&:strip)
+# 僵尸节点跳过：连续失败判定阈值 / 复测间隔（秒）
+DEAD_SKIP = (CONF['DEAD_SKIP'] || '1').to_s != '0'
+DEAD_STREAK = [(CONF['DEAD_STREAK'] || '3').to_i, 1].max
+DEAD_PROBE_SEC = [(CONF['DEAD_PROBE_MINUTES'] || '25').to_i, 1].max * 60
+# 连续失败到这个次数才算"真死"（按长间隔复测）；3~5 次的算"可能只是抖动"，短间隔复测
+DEAD_DEEP_STREAK = [(CONF['DEAD_DEEP_STREAK'] || '6').to_i, DEAD_STREAK].max
+DEAD_PROBE_SHALLOW_SEC = [(CONF['DEAD_PROBE_SHALLOW_MINUTES'] || '8').to_i, 1].max * 60
 
 # OpenWrt 的 ruby 把 fileutils 也拆包了，自己实现一个最小 mkdir -p
 def mkdir_p(dir)
@@ -265,6 +306,94 @@ def rec_for(h, url, node)
   bucket ? bucket[node] : nil
 end
 
+def recent_records(records)
+  return records unless records.is_a?(Array)
+
+  max_age = (CONF['HISTORY_MAX_AGE'] || '3600').to_i
+  return records if max_age <= 0
+
+  cutoff = Time.now.to_i - max_age
+  records.select { |r| !r.is_a?(Hash) || !r.key?('t') || r['t'].to_i >= cutoff }
+end
+
+# 某个节点最近的「连续失败次数」：从最新一条往前数，连续 ms=nil 的条数
+def fail_streak(records)
+  return 0 unless records.is_a?(Array)
+
+  n = 0
+  records.reverse_each do |r|
+    break unless r.is_a?(Hash) && r['ms'].nil?
+
+    n += 1
+  end
+  n
+end
+
+# 僵尸节点：在窗口内连续失败 DEAD_STREAK 次以上（成功过的节点不会长期挂着这个标记）
+def dead_node?(records)
+  fail_streak(records) >= DEAD_STREAK
+end
+
+# 僵尸节点该不该在本轮复测：距上次"真正测过"它的时间超过复测间隔，才再试一次。
+# 注意：不能拿最近一条测速记录的 t 来判断 —— 每轮都测就等于每轮都刷新，永远不到期，
+# 跳过逻辑会空转（这正是第一版的问题）。所以单独记一个 last_probe 时间戳。
+# 分两档：连续失败很多次的（真死）等 DEAD_PROBE_SEC；刚失败几轮的（可能只是抖动/被限速
+# 的误判）只等 DEAD_PROBE_SHALLOW_SEC，尽快把它找回来。
+def probe_due?(hist, url, node, records: nil)
+  ts = history_probe_times
+  key = "#{url}|#{node}"
+  last = ts[key]
+  return true if last.nil? || last <= 0
+
+  records ||= rec_for(hist, url, node)
+  streak = fail_streak(records)
+  interval = streak >= DEAD_DEEP_STREAK ? DEAD_PROBE_SEC : [DEAD_PROBE_SHALLOW_SEC, DEAD_PROBE_SEC].min
+  # 用 > 而不是 >=：周期正好落在间隔边界上时（8 分钟整、25 分钟整）留一点余量，
+  # 避免"这一毫秒到了、下一毫秒没过"的边界抖动。
+  Time.now.to_i - last.to_i > interval
+end
+
+def mark_probe(hist, url, node, t = Time.now.to_i)
+  (hist['probe'] ||= {})["#{url}|#{node}"] = t
+end
+
+def history_probe_times
+  history['probe'] ||= {}
+end
+
+# 本轮要不要跳过这个节点的测速（僵尸 + 刚测过）
+def skip_dead_probe?(hist, url, name)
+  return false unless DEAD_SKIP
+
+  records = rec_for(hist, url, name)
+  dead_node?(records) && !probe_due?(hist, url, name, records: records)
+end
+
+# 某个被接管分组里，每个节点实际会用到哪些测速地址（同一节点可能出现在多个组）。
+# 有的节点只是"通用地址"不通、但 ChatGPT 地址通（实测 134 个里有 46 个是这样），
+# 所以僵尸判定必须"在所有用到的测速地址上都不通"才能跳过，否则会把能用 ChatGPT 的节点
+# 一起停掉。
+def node_test_urls(groups, proxies)
+  map = Hash.new { |h, k| h[k] = {} }
+  groups.each do |g|
+    info = proxies[g]
+    next unless info && info['all']
+
+    url = group_test_url(g)
+    (info['all'] || []).each { |m| map[m][url] = true }
+  end
+  map
+end
+
+# 该节点本轮是否整体可跳过：所有参与的分组测速地址上都已是僵尸且都还没到复测时间。
+# 注意这里必须用 urls.keys.all?：直接 urls.all? 时块参数拿到的是 [key, value] 数组，
+# 会让判定永远失败（这是踩过的坑）。
+def node_fully_skippable?(hist, name, urls)
+  return false if urls.nil? || urls.empty?
+
+  urls.keys.all? { |u| skip_dead_probe?(hist, u, name) }
+end
+
 # ---------- 得分模型 ----------
 # 最近 N 条记录里：
 #   avg   = 成功测速的平均延迟
@@ -275,17 +404,24 @@ end
 # 记录不足 MIN_SAMPLES 条时只按 avg 排，不给稳定性加分（避免"只测过一次很快"就抢走）
 # 某节点在某地址下最近一次记录
 def last_rec(h, url, node)
-  r = rec_for(h, url, node)
+  r = recent_records(rec_for(h, url, node))
   r && r.last
 end
 
 def score_of(records, min_samples)
+  records = recent_records(records)
   return nil if records.nil? || records.empty?
 
   oks = records.map { |r| r['ms'] }.compact
   n = records.size
   fail = n - oks.size
-  return { score: 99_999, avg: nil, sd: nil, fail: fail, n: n } if oks.empty?
+  if oks.empty?
+    # 全失败的节点给一个「按连续失败次数递进」的分数：
+    # 以前统一 99999，僵尸节点之间无法排序（面板全是同一个分）；
+    # 现在连续失败越多分越高，刚断的节点排在老僵尸前面，恢复后能优先被复测/选中。
+    streak = fail_streak(records)
+    return { score: 99_999 + [streak * 100, 10_000].min, avg: nil, sd: nil, fail: fail, n: n }
+  end
 
   avg = oks.sum.to_f / oks.size
   sd = if oks.size > 1
@@ -295,12 +431,25 @@ def score_of(records, min_samples)
        end
   penalty = (fail.to_f / n) * 5000
   raw = avg + (2 * sd) + penalty
-  # 样本不够时保守一点：按 1.2 倍计入（相当于略微不信任）
-  raw *= 1.2 if n < min_samples
+  # 样本不够时只加 2% 的轻微不信任：以前是 1.2 倍，会让"9 条记录"和"10 条记录"
+  # 的节点分数不可比，样本数每轮变化（以及僵尸跳过）就会造成无意义的名次抖动。
+  raw *= 1.02 if n < min_samples
   { score: raw.round(1), avg: avg.round(1), sd: sd.round(1), fail: fail, n: n }
 end
 
 # 组候选的得分：节点直接算；嵌套分组用它当前选中的节点算
+# 排序时叠加一个「最近一次实测失败」的轻惩罚：不是直接淘汰（可能只是抖动），
+# 而是让"刚测通过"的候选排在前面，避免把有限的实测验证次数花在刚超时的节点上。
+LAST_FAIL_PENALTY = 2000
+
+def candidate_rank(stat, records)
+  return Float::INFINITY if stat.nil?
+
+  last = records.is_a?(Array) ? records.last : nil
+  last_failed = last.is_a?(Hash) && last['ms'].nil?
+  stat[:score] + (last_failed ? LAST_FAIL_PENALTY : 0)
+end
+
 def candidate_score(proxies, hist, name, min_samples, url = nil, depth = 0)
   url ||= CONF['TEST_URL']
   if node?(proxies, name)
@@ -334,22 +483,35 @@ end
 
 # ---------- 测速 ----------
 def run_cycle(groups, proxies)
+  hist = history
+  url_map = node_test_urls(groups, proxies)
   jobs = {}
+  skipped = {}
   groups.each do |g|
     url, expected, tmo = group_test_target(g)
     info = proxies[g]
     next unless info && info['all']
 
     info['all'].each do |m|
-      jobs[[url, expected, tmo || CONF['TIMEOUT'].to_i, m]] = true if node?(proxies, m)
+      next unless node?(proxies, m)
+
+      job = [url, expected, tmo || CONF['TIMEOUT'].to_i, m]
+      # 僵尸节点：在它参与的所有测速地址上都连续失败 DEAD_STREAK 次以上、且都还没到复测时间
+      # → 本轮不测（省下大量超时等待），历史记录和成员资格都保留，到点自动复测。
+      # 只在某一个地址上失败（例如通用地址不通但 ChatGPT 地址通）不算僵尸，照常测。
+      if node_fully_skippable?(hist, m, url_map[m])
+        skipped[job] = true
+        next
+      end
+      jobs[job] = true
     end
   end
   jobs = jobs.keys
   targets = jobs.map { |j| [j[0], j[2]] }.uniq
   log "[cycle] 本轮要测 #{jobs.size} 次（#{groups.size} 个组，#{targets.size} 种测速目标，并发 #{CONF['CONCURRENCY']}）"
+  log "[cycle] 跳过 #{skipped.size} 次僵尸节点的重复测速（所有测速地址上都连续失败≥#{DEAD_STREAK} 次且未到复测时间）" if skipped.size.positive?
   targets.each { |u, t| log "[cycle]   测速地址: #{u}（超时 #{t}ms）" }
 
-  hist = history
   servers = load_node_servers
   # 取服务器名；取不到的用节点名当唯一 key（等于不限制）
   skey = ->(name) { servers[name] || "unknown:#{name}" }
@@ -384,6 +546,8 @@ def run_cycle(groups, proxies)
             rec = (bucket[name] ||= [])
             rec << { 't' => Time.now.to_i, 'ms' => ms }
             rec.shift while rec.size > HISTORY_N
+            # 记下"真正测过"的时间，僵尸节点的复测间隔以它为准
+            (hist['probe'] ||= {})["#{url}|#{name}"] = Time.now.to_i
             done += 1
             okc += 1 if ms
           end
@@ -397,6 +561,21 @@ def run_cycle(groups, proxies)
   hist['updated'] = Time.now.to_i
   save_json(HISTORY_FILE, hist)
   log "[cycle] 完成：#{done} 次，成功 #{okc}，耗时 #{(Time.now - t0).round(1)}s"
+end
+
+def append_history_result(hist, url, node, ms)
+  bucket = (hist['by_url'][url] ||= {})
+  rec = (bucket[node] ||= [])
+  rec << { 't' => Time.now.to_i, 'ms' => ms }
+  rec.shift while rec.size > HISTORY_N
+  (hist['probe'] ||= {})["#{url}|#{node}"] = Time.now.to_i
+end
+
+def verify_switch_candidate(hist, group, node)
+  turl, texp, tmo = group_test_target(group)
+  ms = test_delay(node, turl, texp, tmo)
+  append_history_result(hist, turl, node, ms)
+  ms
 end
 
 # ---------- 选择 ----------
@@ -423,7 +602,7 @@ def run_select(groups, proxies)
     cands = (info['all'] || []).reject { |n| NEVER.include?(n) }
     scored = cands.map { |n| [n, candidate_score(proxies, hist, n, min_samples, turl)] }
                   .reject { |_n, s| s.nil? }
-                  .sort_by { |_n, s| s[:score] }
+                  .sort_by { |n, s| candidate_rank(s, recent_records(rec_for(hist, turl, n))) }
     if scored.empty?
       log "[select] #{g}：还没有可用记录，跳过"
       next
@@ -431,23 +610,30 @@ def run_select(groups, proxies)
 
     cur = info['now']
     cur_score = candidate_score(proxies, hist, cur, min_samples, turl)
+    cur_rank = candidate_rank(cur_score, recent_records(rec_for(hist, turl, cur)))
     best, bstat = scored.first
+    best_rank = candidate_rank(bstat, recent_records(rec_for(hist, turl, best)))
     st = state['groups'][g] ||= {}
 
-    # 手动改过 → 让位一段时间（但只在这个节点"确实有测速数据且不算差"时才让位；
-    # 换配置/换节点后当前节点可能根本没有记录，这时必须让模型重新挑，否则会卡在死节点上）
-    # --force 时忽略让位，强制重选
-    if !FORCE && st['set'] && cur && cur != st['set'] && cur_score && cur_score[:fail] < (cur_score[:n] * 0.5)
-      held = now_t - (st['manual_at'] ||= now_t)
+    # 手动改过 → 同一节点完整让位 MANUAL_HOLD；手动节点变化则重新计时。
+    # --force 时忽略让位，强制重选。
+    if !FORCE && st['set'] && cur && cur != st['set']
+      if st['manual_node'] != cur
+        st['manual_node'] = cur
+        st['manual_at'] = now_t
+      end
+      held = now_t - st['manual_at'].to_i
       if held < CONF['MANUAL_HOLD'].to_i
         log "[select] #{g}：检测到手动选了「#{cur}」，让位 #{(CONF['MANUAL_HOLD'].to_i - held) / 60} 分钟"
         next
       end
+      st.delete('manual_at')
+      st.delete('manual_node')
     end
 
     # 切换判据
     # 当前节点是否"连续两次都测不通"（单次失败可能是噪声，不立刻切，避免来回抖）
-    cur_recs = rec_for(hist, turl, cur) || []
+    cur_recs = recent_records(rec_for(hist, turl, cur)) || []
     tail2 = cur_recs.last(2)
     cur_dead2 = tail2.size == 2 && tail2.all? { |r| r['ms'].nil? }
     best_last = last_rec(hist, turl, best)
@@ -455,34 +641,64 @@ def run_select(groups, proxies)
     need = if cur.nil? || cur_score.nil?
              true
            elsif dead_cur
-             true   # 当前节点最近一次就测不通、候选最近一次是通的 → 立刻切（不等窗口攒满）
-           elsif bstat[:fail].zero? && cur_score[:fail].positive?
-             true   # 当前节点有超时、候选没有 → 立刻切
+             true   # 当前节点最近连续两次测不通，候选最近一次是通的 → 立刻切（不等窗口攒满）
            else
-             better = cur_score[:score] - bstat[:score]
-             better >= CONF['TOLERANCE_MS'].to_i && better >= cur_score[:score] * CONF['TOLERANCE_PCT'].to_f / 100
+             better = cur_rank - best_rank
+             better >= CONF['TOLERANCE_MS'].to_i && better >= cur_rank * CONF['TOLERANCE_PCT'].to_f / 100
            end
     unless need
       log "[select] #{g}：保持「#{cur}」(#{fmt(cur_score)})，最优「#{best}」#{fmt(bstat)} 未达切换阈值"
       next
     end
 
-    if !dead_cur && st['last_switch'] && now_t - st['last_switch'] < CONF['MIN_SWITCH_INTERVAL'].to_i
-      log "[select] #{g}：想切到「#{best}」但距上次切换不足 #{CONF['MIN_SWITCH_INTERVAL']}s，本轮不动"
+    min_interval = group_min_switch_interval(g)
+    if !dead_cur && st['last_switch'] && now_t - st['last_switch'] < min_interval
+      log "[select] #{g}：想切到「#{best}」但距上次切换不足 #{min_interval}s，本轮不动"
       next
     end
 
+    verify_max = (CONF['GUARD_VERIFY_MAX'] || 6).to_i
+    eligible = if dead_cur || cur.nil? || cur_score.nil?
+                 scored
+               else
+                 scored.select do |n, s|
+                   rank = candidate_rank(s, recent_records(rec_for(hist, turl, n)))
+                   better = cur_rank - rank
+                   better >= CONF['TOLERANCE_MS'].to_i && better >= cur_rank * CONF['TOLERANCE_PCT'].to_f / 100
+                 end
+               end
+    chosen = nil
+    tried = 0
+    eligible.each do |cand, stat|
+      next if cand == cur
+      break if tried >= verify_max
+
+      tried += 1
+      ms = verify_switch_candidate(hist, g, cand)
+      next unless ms
+
+      chosen = [cand, stat, ms]
+      break
+    end
+    unless chosen
+      log "[select] #{g}：候选实测 #{tried} 个无人通过，保持「#{cur}」"
+      next
+    end
+    best, bstat, verified_ms = chosen
+
     code, _body = api_put("/proxies/#{enc(g)}", { 'name' => best })
     if code.zero?
-      log "[select] #{g}：切到「#{best}」#{fmt(bstat)}（原「#{cur}」#{fmt(cur_score)}）"
+      log "[select] #{g}：候选实测通过 #{verified_ms}ms 后切到「#{best}」#{fmt(bstat)}（原「#{cur}」#{fmt(cur_score)}）"
       st['set'] = best
       st['last_switch'] = now_t
       st.delete('manual_at')
+      st.delete('manual_node')
       switched += 1
     else
       log "[select] #{g}：切换失败 HTTP #{code}"
     end
   end
+  save_json(HISTORY_FILE, hist)
   save_json(STATE_FILE, state)
   log "[select] 本轮切换 #{switched} 个组"
 end
@@ -504,12 +720,42 @@ def dump_yaml(data)
   YAML.dump(data).gsub(FOUR_BYTE_ESCAPE) { [Regexp.last_match(1).hex].pack('U') }
 end
 
+def atomic_write_yaml(path, data)
+  text = dump_yaml(data)
+  YAML.unsafe_load(text)
+  old = File.exist?(path) ? File.read(path) : nil
+  return false if old == text
+
+  tmp = File.join(File.dirname(path), ".#{File.basename(path)}.tmp#{Process.pid}")
+  File.write(tmp, text)
+  YAML.unsafe_load_file(tmp)
+  File.rename(tmp, path)
+  YAML.unsafe_load_file(path)
+  true
+ensure
+  File.delete(tmp) if tmp && File.exist?(tmp)
+end
+
 def config_paths
   src = `uci -q get openclash.config.config_path 2>/dev/null`.strip
   list = []
   list << src unless src.empty?
   list << "/etc/openclash/#{File.basename(src)}" unless src.empty?
   list.select { |p| File.exist?(p) }.uniq
+end
+
+def check_smart_members
+  script = '/etc/openclash/custom/oc-smart-members.rb'
+  paths = config_paths
+  return if !File.exist?(script) || paths.empty?
+
+  cmd = ['ruby', script, '--check'] + paths
+  out = IO.popen(cmd, err: [:child, :out], &:read)
+  rc = $?.exitstatus || 1
+  out.to_s.each_line { |line| log line.strip }
+  log "[warn] oc-smart-members 只读校验失败（退出码 #{rc}），等待 OpenClash overwrite hook 修复" unless rc.zero?
+rescue StandardError => e
+  log "[warn] oc-smart-members 只读校验异常: #{e.message}"
 end
 
 def convert_groups(mode, groups, paths = nil)
@@ -528,11 +774,10 @@ def convert_groups(mode, groups, paths = nil)
       next unless g.is_a?(Hash) && groups.include?(g['name'])
 
       if mode == 'convert'
-        next if g['type'] == 'select'
-
+        before = g.dup
         g['type'] = 'select'
         %w[url interval tolerance lazy expected-status strategy].each { |k| g.delete(k) }
-        touched = true
+        touched = true if g != before
       else
         next if g['type'] == 'url-test'
 
@@ -549,8 +794,7 @@ def convert_groups(mode, groups, paths = nil)
     end
     next unless touched
 
-    File.write(path, dump_yaml(data))
-    changed << path
+    changed << path if atomic_write_yaml(path, data)
   end
   changed
 end
@@ -597,6 +841,29 @@ def write_panel_json(proxies, hist, groups)
     lines << "test_urls=#{grp.values.map { |v| v['test_url'] }.uniq.size}"
     lines << "history_n=#{HISTORY_N}"
     lines << "min_switch_interval=#{CONF['MIN_SWITCH_INTERVAL']}"
+    lines << "history_max_age=#{CONF['HISTORY_MAX_AGE']}"
+    lines << "cycle_min=#{CONF['CYCLE_MIN'] || '5'}"
+    # 僵尸节点统计：让面板/日志能看出"全失败的节点占多少、这轮跳过了多少"
+    if DEAD_SKIP
+      dead_total = 0
+      skippable = 0
+      seen_nodes = {}
+      nodes.each_key do |key|
+        url, node = key.split('|', 2)
+        next if seen_nodes[node]
+
+        seen_nodes[node] = true
+        # 只统计"该节点确实参与测速"的地址：只要在任意一个地址上还活着就不算僵尸
+        # （口径与 run_cycle 的 node_fully_skippable? 一致）
+        recs = (hist['by_url'] || {}).values.filter_map { |bucket| bucket[node] }
+        next if recs.empty? || !recs.all? { |r| dead_node?(r) }
+
+        dead_total += 1
+        skippable += 1 if skip_dead_probe?(hist, url, node)
+      end
+      lines << "dead_nodes=#{dead_total}"
+      lines << "skippable_nodes=#{skippable}"
+    end
     grp.each { |g, v| lines << "now.#{g}=#{v['now']}" }
     grp.each { |g, v| lines << "url.#{g}=#{v['test_url']}" }
     # 最近一轮每个地址的成功/超时统计
@@ -624,16 +891,17 @@ end
 # 被接管的组必须先是 select，模型才能控制它的选择。
 # 换了整套配置/订阅后组类型常常会变回 url-test —— 这里自动转换 + 让内核热重载配置。
 def ensure_groups_selectable(groups, proxies)
+  check_smart_members
   needs = groups.select { |g| proxies[g] && proxies[g]['type'] != 'Selector' }
-  return if needs.empty?
-
-  log "[auto] 这些被接管的组不是 select（模型控制不了），自动转换: #{needs.join(', ')}"
-  changed = convert_groups('convert', needs)
-  return if changed.empty?
+  log "[auto] 这些被接管的组不是 select（模型控制不了），自动转换: #{needs.join(', ')}" unless needs.empty?
 
   path = `uci -q get openclash.config.config_path 2>/dev/null`.strip
   rt = path.empty? ? nil : "/etc/openclash/#{File.basename(path)}"
-  return unless rt && File.exist?(rt)
+  changed = convert_groups('convert', groups)
+  return if changed.empty?
+
+  log "[auto] 已修正配置漂移：#{changed.join(', ')}"
+  return if needs.empty? || rt.nil? || !changed.include?(rt) || !File.exist?(rt)
 
   code, _body = curl(['-X', 'PUT', '-H', 'Content-Type: application/json',
                       '-d', JSON.generate({ 'path' => rt, 'force' => true }),
@@ -661,7 +929,33 @@ def prune_history(hist, proxies, groups)
       removed += 1
     end
   end
+  # 顺便丢掉已经空掉的测速地址桶：以前换过测速地址会留下空桶，
+  # 面板上就会显示"该地址 0/0"，看起来像测速失败。
+  (hist['by_url'] || {}).delete_if { |_url, bucket| bucket.nil? || bucket.empty? }
+  # 清理已经不再参与测速的节点的复测时间戳，避免文件无限增长
+  if hist['probe'].is_a?(Hash)
+    live = {}
+    (hist['by_url'] || {}).each do |url, bucket|
+      bucket.each_key { |n| live["#{url}|#{n}"] = true }
+    end
+    hist['probe'].delete_if { |k, _v| !live[k] }
+  end
   removed
+end
+
+def validate_managed_groups(groups, proxies)
+  groups.each do |g|
+    info = proxies[g]
+    unless info && info['all']
+      log "[check] #{g}: API无成员信息"
+      next
+    end
+    members = info['all'] || []
+    real_nodes = members.count { |m| node?(proxies, m) }
+    missing = members.count { |m| !proxies.key?(m) && !NEVER.include?(m) }
+    self_ref = members.include?(g)
+    log "[check] #{g}: 总成员 #{members.size}，真实节点 #{real_nodes}，不存在成员 #{missing}#{self_ref ? '，存在自引用' : ''}"
+  end
 end
 
 # ---------- 快速守护 ----------
@@ -690,12 +984,14 @@ def run_guard(groups, proxies)
     ms = test_delay(cur, turl, texp, tmo)
     rec << { 't' => Time.now.to_i, 'ms' => ms }
     rec.shift while rec.size > HISTORY_N
+    mark_probe(hist, turl, cur)
 
     if ms.nil?
       # 单次抖动不算数：同一次 guard 里立刻复测一次，避免来回切
       ms = test_delay(cur, turl, texp, tmo)
       rec << { 't' => Time.now.to_i, 'ms' => ms }
       rec.shift while rec.size > HISTORY_N
+      mark_probe(hist, turl, cur)
     end
     next if ms   # 复测通了 → 不折腾
 
@@ -704,7 +1000,7 @@ def run_guard(groups, proxies)
     cands = (info['all'] || [])
             .reject { |x| NEVER.include?(x) || x == cur }
             .map { |x| [x, candidate_score(proxies, hist, x, min_samples, turl)] }
-            .sort_by { |_x, sc| sc ? sc[:score] : Float::INFINITY }
+            .sort_by { |x, sc| candidate_rank(sc, recent_records(rec_for(hist, turl, x))) }
     best = nil
     tried = 0
     cands.each do |x, sc|
@@ -716,6 +1012,7 @@ def run_guard(groups, proxies)
       vr = (vb[x] ||= [])
       vr << { 't' => Time.now.to_i, 'ms' => v }
       vr.shift while vr.size > HISTORY_N
+      mark_probe(hist, turl, x)
       next unless v
 
       best = [x, sc, v]
@@ -734,6 +1031,7 @@ def run_guard(groups, proxies)
       st['set'] = best[0]
       st['last_switch'] = Time.now.to_i
       st.delete('manual_at')
+      st.delete('manual_node')
       switched += 1
     else
       log "[guard] #{g}: 切换到「#{best[0]}」失败（HTTP 退出码 #{code}）"
@@ -773,6 +1071,9 @@ end
 
 # ---------- main ----------
 cmd = ARGV[0] || 'cycle'
+if ENV['OC_SMART_ENTRY'] != '1' && %w[cycle select guard reset convert revert watchdog].include?(cmd)
+  log "[warn] 请通过 /etc/openclash/custom/oc-smart.sh 调用 #{cmd}，直接 ruby 会绕过防重入锁"
+end
 
 # convert / revert 只改配置文件，不需要 mihomo 在跑（首次开机 uci-defaults 阶段就要能用）
 if %w[convert revert].include?(cmd)
@@ -818,6 +1119,7 @@ when 'cycle'
     save_json(HISTORY_FILE, history)
     log "[cycle] 清理了 #{n} 条已不在分组里的节点记录"
   end
+  validate_managed_groups(groups, proxies)
   run_cycle(groups, proxies)
   proxies = fetch_proxies
   run_select(groups, proxies)
