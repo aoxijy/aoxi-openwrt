@@ -673,6 +673,7 @@ def run_guard(groups, proxies)
   state = load_json(STATE_FILE, { 'groups' => {} })
   state['groups'] ||= {}
   min_samples = CONF['MIN_SAMPLES'].to_i
+  verify_max = (CONF['GUARD_VERIFY_MAX'] || 6).to_i
   switched = 0
 
   groups.each do |g|
@@ -683,29 +684,52 @@ def run_guard(groups, proxies)
     next if cur.nil? || NEVER.include?(cur)
 
     turl, texp, tmo = group_test_target(g)
-    ms = test_delay(cur, turl, texp, tmo)
     bucket = (hist['by_url'][turl] ||= {})
     rec = (bucket[cur] ||= [])
+
+    ms = test_delay(cur, turl, texp, tmo)
     rec << { 't' => Time.now.to_i, 'ms' => ms }
     rec.shift while rec.size > HISTORY_N
-    next if ms   # 通的就不折腾
 
-    tail = rec.last(2)
-    next unless tail.size == 2 && tail.all? { |r| r['ms'].nil? }
+    if ms.nil?
+      # 单次抖动不算数：同一次 guard 里立刻复测一次，避免来回切
+      ms = test_delay(cur, turl, texp, tmo)
+      rec << { 't' => Time.now.to_i, 'ms' => ms }
+      rec.shift while rec.size > HISTORY_N
+    end
+    next if ms   # 复测通了 → 不折腾
 
-    cands = (info['all'] || []).reject { |x| NEVER.include?(x) }
-                              .map { |x| [x, candidate_score(proxies, hist, x, min_samples, turl), last_rec(hist, turl, x)] }
-                              .select { |_x, sc, lr| sc && lr && lr['ms'] }
-                              .sort_by { |_x, sc, _lr| sc[:score] }
-    best = cands.first
+    # 连测两次都不通：按分数取候选，**逐个实测验证**，第一个实测通的才切过去。
+    # 这一步是关键：以前只按历史分数选，切过去可能又是个死节点（用户体感就是"切了还是打不开"）。
+    cands = (info['all'] || [])
+            .reject { |x| NEVER.include?(x) || x == cur }
+            .map { |x| [x, candidate_score(proxies, hist, x, min_samples, turl)] }
+            .sort_by { |_x, sc| sc ? sc[:score] : Float::INFINITY }
+    best = nil
+    tried = 0
+    cands.each do |x, sc|
+      break if tried >= verify_max
+
+      tried += 1
+      v = test_delay(x, turl, texp, tmo)
+      vb = (hist['by_url'][turl] ||= {})
+      vr = (vb[x] ||= [])
+      vr << { 't' => Time.now.to_i, 'ms' => v }
+      vr.shift while vr.size > HISTORY_N
+      next unless v
+
+      best = [x, sc, v]
+      break
+    end
+
     if best.nil?
-      log "[guard] #{g}: 当前「#{cur}」连续两次不通，但还没有「最近一次通过」的候选"
+      log "[guard] #{g}: 当前「#{cur}」连测两次不通；候选实测了 #{tried} 个也都不通 → 先保持不动（下一轮再试）"
       next
     end
 
     code, _b = api_put("/proxies/#{enc(g)}", { 'name' => best[0] })
     if code.zero?
-      log "[guard] #{g}: 当前「#{cur}」连续两次不通 → 立刻切到「#{best[0]}」#{fmt(best[1])}"
+      log "[guard] #{g}: 当前「#{cur}」连测两次不通 → 实测通过后切到「#{best[0]}」#{best[2]}ms#{best[1] ? "（分 #{best[1][:score]}，候选实测 #{tried} 个）" : ""}"
       st = state['groups'][g] ||= {}
       st['set'] = best[0]
       st['last_switch'] = Time.now.to_i

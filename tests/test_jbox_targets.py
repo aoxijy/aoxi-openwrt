@@ -230,6 +230,21 @@ def main() -> int:
         if (ROOT / "build" / name / "sources" / "etc" / "openclash").exists():
             fail(f"J-Box 目标 {name} 不应包含 OpenClash 数据")
 
+    # 选路模型的快速守护必须"候选实测验证后再切"，并且通用测速地址用 HTTPS
+    for name in ("Lean_x86_64", "Lean_x86_64_Docker"):
+        base = ROOT / "build" / name / "sources" / "etc" / "openclash" / "custom"
+        rb = (base / "oc-smart.rb").read_text(encoding="utf-8")
+        guard = rb[rb.index("def run_guard"):rb.index("# ---------- status ----------")]
+        if "GUARD_VERIFY_MAX" not in rb or "GUARD_VERIFY_MAX" not in (base / "oc-smart.conf").read_text(encoding="utf-8"):
+            fail(f"{name}: guard 缺少 GUARD_VERIFY_MAX（候选实测上限）")
+        if "test_delay(x, turl, texp, tmo)" not in guard:
+            fail(f"{name}: guard 切换前没有实测候选节点（会切到另一个死节点）")
+        if "连测两次不通" not in guard:
+            fail(f"{name}: guard 没有「单次抖动先复测」的逻辑")
+        conf = (base / "oc-smart.conf").read_text(encoding="utf-8")
+        if "TEST_URL=https://www.gstatic.com/generate_204" not in conf:
+            fail(f"{name}: 通用测速地址应为 HTTPS（HTTP 测不出 TLS 到 Google 被墙的节点）")
+
     print("JBOX_TARGET_CONTRACT_OK")
     return 0
 
