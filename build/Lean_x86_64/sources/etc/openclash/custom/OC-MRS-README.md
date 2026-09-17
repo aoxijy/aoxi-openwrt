@@ -508,3 +508,36 @@ ruby /etc/openclash/custom/oc-luci-panel.rb status
 | OpenClash 控制面板首页（有 MRS 面板卡片） | `http://<路由IP>/cgi-bin/luci/admin/services/openclash/client` |
 | 覆写设置 → Dashboard（可把 MRS Panel 设为默认面板） | `http://<路由IP>/cgi-bin/luci/admin/services/openclash/settings` |
 
+
+---
+
+## 14. 卡在死节点 / 「看着没测速」/ 打不开 Google 怎么排查
+
+实测反馈过这个现象：某个组（例如 ♻️ 香港自动）看着没有测速、上不了 Google，
+点一下面板的测速闪电才恢复。抓数据后确认**测速一直在跑**（每 5 分钟 198+134 个节点全覆盖），
+问题出在"发现节点死了之后怎么换"。现在的行为：
+
+| 现象 | 原因 / 现在的处理 |
+|---|---|
+| 原版面板里这些组**看不到"组延迟"** | 被模型接管的组是 `select` 类型，而 mihomo 只对 `url-test`/`fallback` 组做健康检查 → **组**这一行没有延迟值。**按节点**看仍有延迟（模型的每轮测速把历史记在节点上）。要看每节点最近 10 次记录 + 每组专用测速地址，用 MRS 面板：`http://<路由IP>:9090/ui/mrs-panel/` |
+| 节点好像"没测速"、还打不开 Google | 节点池里有大量**硬超时**（不是慢）：实测一半以上节点某个时刻是不通的，而且**间歇性**（刚测超时、几秒后又通）。模型每 5 分钟全量复测，`guard` 每分钟只盯"每组当前选中的节点" |
+| guard 怎么换 | 当前节点一次不通 → **同一次 guard 内立刻复测一次**（单次抖动不折腾）；连测两次仍不通 → 按分数取候选**逐个实测**（上限 `GUARD_VERIFY_MAX`，默认 6），**第一个实测通过的才切过去**；候选全不通就保持不动、下一轮再试 |
+| 手动改过组之后模型不动 | 让位 `MANUAL_HOLD` 秒（默认 300），之后模型重新接管；想立刻让它按模型结果重选：`oc-smart.sh select --force` |
+
+想立刻恢复网络：
+
+```sh
+oc-smart.sh guard           # 只测每组当前节点，不通就实测候选并换掉（最常用，几秒~几十秒）
+oc-smart.sh select --force  # 按已有记录重选（忽略手动让位）
+oc-smart.sh status          # 看每组当前节点、得分、候选前三
+tail -20 /tmp/openclash_smart.log
+```
+
+调参（`/etc/openclash/custom/oc-smart.conf`）：
+
+| 项 | 默认 | 说明 |
+|---|---|---|
+| `GUARD_VERIFY_MAX` | 6 | guard 切换前最多实测几个候选；越大越稳、单轮越慢 |
+| `TIMEOUT` / `TEST_URL` | 3000 / `https://www.gstatic.com/generate_204` | 通用测速。**用 HTTPS**：明文能过但 TLS 到 Google 被墙的节点只有 HTTPS 测得出来 |
+| `MANUAL_HOLD` | 300 | 手动改过之后模型让位多久 |
+| `MIN_SWITCH_INTERVAL` | 120 | 同一组两次自动切换的最小间隔 |
