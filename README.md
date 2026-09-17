@@ -41,14 +41,22 @@
 | **MRS 延迟面板** | `http://<路由>:9090/ui/mrs-panel/` | 每个分组的节点表：最新延迟 + **最近 10 次连通记录色条** + 模型得分；**鼠标悬停看这 10 次明细**（时间/延迟/超时）。也可设为默认面板，之后 OpenClash 自己的「控制面板」按钮就打开它 |
 | **LuCI 入口** | 服务 → OpenClash → **控制面板**（首页卡片）、**覆写设置 → Dashboard 设置**（可"设为默认面板"） | 首页卡片有 4 个状态点：面板文件 / 选路模型 / 定时任务 / 最近一轮时间与通过率，一眼看出是否生效 |
 | **选路模型** | `/etc/openclash/custom/oc-smart.{rb,sh,conf}` | 每 5 分钟给被接管分组的成员测速，每节点保留最近 10 条；按 `延迟 + 2×抖动 + 超时惩罚` 算分，在**每个分组自己的成员里**挑最优（绝不跨组），当前节点没有明显更差就不切 |
+| **成员自动适配** | `/etc/openclash/custom/oc-smart-members.rb`（由 overwrite 钩子每次生成配置时调用） | 换订阅/加减节点后自动重建 6 个预设分组的成员：`香港 / 亚洲 / 美国 / 其他` 四组**两两互斥、合并恰好覆盖全部节点**，`自动选择` = 全部，`CHATGPT自动` = 除香港外全部。成员脚本失败会中止本次覆写，避免半更新 |
 | **看门狗** | 每 10 分钟 | 状态文件超过 30 分钟没更新（模型挂了）→ 自动把分组交回内核 `url-test` 自管，模型恢复后自动再接管 |
 | **分组专用测速地址** | `oc-smart.conf` 的 `GROUP_TEST_URL` | 默认给 `🕸️ CHATGPT自动` 配 `https://chatgpt.com/cdn-cgi/trace` + `expected=200` + 10s 超时（通用地址通了不代表能开 ChatGPT）。回退到 `url-test` 时也会带上这个地址与期望状态码 |
 
 **内置的稳定性设计**
 
 - 测速**同一台服务器串行**（实测 198 个"节点"只对应 93 台服务器，一台最多挂 34 个，并发打同一台会被限速）
+- **僵尸节点快速跳过**：实测 198 个节点里 124 个长期连续全失败，每轮都重测纯属浪费。
+  连续失败 ≥ `DEAD_STREAK`(3) 次、且在所有参与测速的地址上都不通、且距上次"真正测过"不足复测间隔的节点，
+  本轮不再测（成员资格与历史全部保留，`DEAD_PROBE_MINUTES`(25) 分钟到点自动复测，恢复后立刻回候选池）。
+  效果：每轮 332 次 → ~125 次，183s → ~120s，把时间让给真正能用的节点
+- **只在某一个地址上失败不算僵尸**：有的节点通用地址不通、但 ChatGPT 地址通，这种照常测，不会被误停
+- **每组独立状态**：当前节点、上次切换时间、手动让位各自独立；普通分组共用同 URL 的测速结果，但选择范围与防抖互不影响
 - **换节点/换整套配置自适应**：成员变动自动跟上；组类型被打回 `url-test` 会自动转回 `select` 并热重载；记录按"测速地址"分桶，离开分组的节点自动清理
 - **不跟用户抢**：手动选过的分组让位 5 分钟；`oc-smart.sh select --force` 可强制按模型结果重选
+- **并发防撞车**：`oc-smart.sh` 用原子目录锁串行化 cycle/guard/select/watchdog，避免 cron 与手动执行互相覆盖状态
 - 规则、脚本、面板全部本地化，**断网也能用**
 
 **常用命令（路由器上）**
@@ -56,9 +64,12 @@
 ```sh
 /etc/openclash/custom/oc-smart.sh status            # 每个分组：当前节点 / 得分 / 候选前三
 /etc/openclash/custom/oc-smart.sh cycle             # 立刻测一轮并重选
+/etc/openclash/custom/oc-smart.sh guard             # 快速守护：只查当前节点，连测两次不通就换（cron 每分钟）
 /etc/openclash/custom/oc-smart.sh select --force    # 忽略"手动让位"，强制按模型重选
+/etc/openclash/custom/oc-smart.sh type              # 查看被接管分组当前类型（只能是 select，模型才控得住）
 /etc/openclash/custom/oc-smart.sh revert            # 交回内核 url-test 自管（仍用专用测速地址）
 /etc/openclash/custom/oc-smart.sh watchdog          # 看门狗自检
+ruby /etc/openclash/custom/oc-smart-members.rb --check /etc/openclash/config/<配置>.yaml   # 只读校验成员分组
 /etc/openclash/custom/oc-luci-panel.rb status       # LuCI 面板 5 项补丁是否就绪（升级 OpenClash 后重跑 install）
 tail -f /tmp/openclash_smart.log                    # 模型日志
 ```
