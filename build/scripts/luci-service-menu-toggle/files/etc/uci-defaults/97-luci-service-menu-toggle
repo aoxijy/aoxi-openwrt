@@ -1,0 +1,5 @@
+#!/bin/sh
+# Clear LuCI caches on first boot so the custom controller and menu dependency
+# are picked up immediately.
+rm -rf /tmp/luci-indexcache /tmp/luci-indexcache.* /tmp/luci-modulecache /tmp/luci-templatecache 2>/dev/null
+exit 0
