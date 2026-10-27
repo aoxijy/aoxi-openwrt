@@ -276,6 +276,10 @@ jobs:
         python3 build/scripts/jbox-firmware/fix_shortcut_patch.py
         python3 build/scripts/jbox-firmware/prepare.py
         make defconfig
+        if ! grep -q '^CONFIG_PACKAGE_luci-app-argon-config=y$' .config && grep -q '^CONFIG_PACKAGE_luci-i18n-argon-config-zh-cn=y$' .config; then
+          echo 'Orphan Argon translation enabled without its application' >&2
+          exit 1
+        fi
         if grep -Eq '^CONFIG_PACKAGE_.*[Oo]pen[Cc]lash.*=[ym]$' .config; then
           echo 'OpenClash unexpectedly enabled' >&2
           exit 1

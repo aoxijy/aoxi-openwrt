@@ -340,6 +340,7 @@ cat >> .config <<EOF
 # CONFIG_PACKAGE_luci-app-adguardhome is not set
 # CONFIG_PACKAGE_luci-app-poweroff is not set
 # CONFIG_PACKAGE_luci-app-argon-config is not set
+# CONFIG_PACKAGE_luci-i18n-argon-config-zh-cn is not set
 # CONFIG_PACKAGE_luci-app-autotimeset is not set
 # CONFIG_PACKAGE_luci-app-ddnsto is not set
 # CONFIG_PACKAGE_ddnsto is not set
