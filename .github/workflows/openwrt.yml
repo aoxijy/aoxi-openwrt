@@ -88,6 +88,7 @@ jobs:
         if: contains(steps.set-models.outputs.models, 'Jox')
         run: |
           python3 build/scripts/jbox-firmware/test_prepare.py
+          python3 build/scripts/jbox-firmware/test_shortcut_patch.py
           python3 build/scripts/jbox-firmware/resolve.py
       - name: 实际发行包解包与 TUN 共存预检
         if: contains(steps.set-models.outputs.models, 'Jox')

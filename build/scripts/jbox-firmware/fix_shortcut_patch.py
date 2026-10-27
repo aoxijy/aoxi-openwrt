@@ -23,9 +23,10 @@ def fix(root: Path):
  #if defined(CONFIG_NET_SCHED) || defined(CONFIG_NET_XGRESS)
  \t__u16\t\t\ttc_index;\t/* traffic control index */
  #endif'''
-    # Linux 6.18.58 adds tc_depth between unreadable and tc_index. Anchor the
-    # addition to the preceding fields instead; retain all upstream fields.
-    new = old.replace('-1030,6 +1030,9', '-1030,3 +1030,6').rsplit('\n #if defined', 1)[0]
+    # Keep trailing context: GNU patch otherwise treats this as an EOF hunk.
+    # Linux 6.18.58 adds tc_depth between unreadable and tc_index.
+    new = old.replace('-1030,6 +1030,9', '-1030,7 +1030,10').replace(
+        '\n #if defined(CONFIG_NET_SCHED)', '\n \t__u8\t\t\ttc_depth:2;\n #if defined(CONFIG_NET_SCHED)')
     if section == new:
         return
     if section != old:
