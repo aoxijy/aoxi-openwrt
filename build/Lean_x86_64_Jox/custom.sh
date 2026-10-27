@@ -54,6 +54,12 @@ fi
 rm -rf feeds/luci/applications/luci-app-qbittorrent
 rm -rf feeds/luci/applications/luci-app-openclash
 rm -rf feeds/luci/themes/luci-theme-argon
+# The integrated Argon theme generates argon-config translations itself.
+# Remove the legacy settings recipe with the same translation package names.
+if grep -q '^LUCI_BASENAME:=argon-config$' package/aoxi-package/luci-theme-argon/Makefile; then
+    rm -rf feeds/luci/applications/luci-app-argon-config
+    rm -f package/feeds/luci/luci-app-argon-config
+fi
 
 # 创建预安装目录和脚本
 echo "创建预安装目录和脚本..."
@@ -340,7 +346,6 @@ cat >> .config <<EOF
 # CONFIG_PACKAGE_luci-app-adguardhome is not set
 # CONFIG_PACKAGE_luci-app-poweroff is not set
 # CONFIG_PACKAGE_luci-app-argon-config is not set
-# CONFIG_PACKAGE_luci-i18n-argon-config-zh-cn is not set
 # CONFIG_PACKAGE_luci-app-autotimeset is not set
 # CONFIG_PACKAGE_luci-app-ddnsto is not set
 # CONFIG_PACKAGE_ddnsto is not set

@@ -276,8 +276,8 @@ jobs:
         python3 build/scripts/jbox-firmware/fix_shortcut_patch.py
         python3 build/scripts/jbox-firmware/prepare.py
         make defconfig
-        if ! grep -q '^CONFIG_PACKAGE_luci-app-argon-config=y$' .config && grep -q '^CONFIG_PACKAGE_luci-i18n-argon-config-zh-cn=y$' .config; then
-          echo 'Orphan Argon translation enabled without its application' >&2
+        if grep -q '^LUCI_BASENAME:=argon-config$' package/aoxi-package/luci-theme-argon/Makefile && [ -d feeds/luci/applications/luci-app-argon-config ]; then
+          echo 'Legacy Argon recipe conflicts with integrated theme translations' >&2
           exit 1
         fi
         if grep -Eq '^CONFIG_PACKAGE_.*[Oo]pen[Cc]lash.*=[ym]$' .config; then
