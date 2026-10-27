@@ -11,6 +11,14 @@ on:
         description: '编译 Lean_x86_64_Docker'
         type: boolean
         default: false    
+      Lean_x86_64_Jox:
+        description: '编译 Lean_x86_64_Jox（J-Box，无 OpenClash）'
+        type: boolean
+        default: false
+      Lean_x86_64_Jox_Docker:
+        description: '编译 Lean_x86_64_Jox_Docker（J-Box，无 OpenClash）'
+        type: boolean
+        default: false
       CACHE_BUILD:
         description: '缓存加速'
         required: false
@@ -44,22 +52,39 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       selected_models: ${{ steps.set-models.outputs.models }}
+      jbox_version: ${{ steps.jbox-release.outputs.version }}
     steps:
       - id: set-models
         run: |
           MODELS=()
           # 定时触发编译全部
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            MODELS=("Lean_x86_64" "Lean_x86_64_Docker")
+            MODELS=("Lean_x86_64" "Lean_x86_64_Docker" "Lean_x86_64_Jox" "Lean_x86_64_Jox_Docker")
           else
             # 手动触发判断
             [ "${{ github.event.inputs.Lean_x86_64 }}" = "true" ] && MODELS+=("Lean_x86_64")
             [ "${{ github.event.inputs.Lean_x86_64_Docker }}" = "true" ] && MODELS+=("Lean_x86_64_Docker")
+            [ "${{ github.event.inputs.Lean_x86_64_Jox }}" = "true" ] && MODELS+=("Lean_x86_64_Jox")
+            [ "${{ github.event.inputs.Lean_x86_64_Jox_Docker }}" = "true" ] && MODELS+=("Lean_x86_64_Jox_Docker")
+            true
           fi
           
+          if [ ${#MODELS[@]} -eq 0 ]; then
+            echo "models=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # 转换为 JSON 数组
           JSON_MODELS=$(printf '%s\n' "${MODELS[@]}" | jq -R . | jq -s -c .)
           echo "models=$JSON_MODELS" >> $GITHUB_OUTPUT
+
+      - uses: actions/checkout@v4
+        if: contains(steps.set-models.outputs.models, 'Jox')
+      - name: 锁定两个固件共用的最新 J-Box 正式版
+        id: jbox-release
+        if: contains(steps.set-models.outputs.models, 'Jox')
+        run: |
+          python3 build/scripts/jbox-firmware/test_prepare.py
+          python3 build/scripts/jbox-firmware/resolve.py
 
   build:
     needs: [build-openwrt]
@@ -68,6 +93,7 @@ jobs:
       CACHE_BUILD: ${{ github.event.inputs.CACHE_BUILD || 'true' }}
       SSH_ACTION: ${{ github.event.inputs.SSH_ACTION || 'false' }}
       CLEAN_CACHE: ${{ github.event.inputs.CLEAN_CACHE || 'false' }}
+      JBOX_RELEASE_VERSION: ${{ needs.build-openwrt.outputs.jbox_version }}
     if: needs.build-openwrt.outputs.selected_models != '[]' && (github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id)
     
     strategy:
@@ -228,6 +254,17 @@ jobs:
 
         make defconfig
 
+    - name: 嵌入完整 J-Box 并清除 OpenClash
+      if: contains(matrix.target, 'Jox')
+      working-directory: openwrt
+      run: |
+        python3 build/scripts/jbox-firmware/prepare.py
+        make defconfig
+        if grep -Eq '^CONFIG_PACKAGE_.*[Oo]pen[Cc]lash.*=[ym]$' .config; then
+          echo 'OpenClash unexpectedly enabled' >&2
+          exit 1
+        fi
+
     - name: SSH远程连接服务器
       uses: db-one/debugger-action@main
       if: env.SSH_ACTIONS == 'true' || (github.event.inputs.SSH_ACTION == 'true')
@@ -340,6 +377,11 @@ jobs:
         find build_dir/target-*/linux-* -maxdepth 1 -name ".stamp_installed" -delete 2>/dev/null || true
         make -j$(nproc) V=sc 2>&1 | tee build.log || (echo "编译失败，查看详细日志..." && tail -n 100 build.log && exit 1)
 
+    - name: 验证 J-Box 固件内容与网页权限
+      if: contains(matrix.target, 'Jox')
+      working-directory: openwrt
+      run: python3 build/scripts/jbox-firmware/verify.py
+
     - name: 检查空间使用情况
       run: |
         echo "======================="
@@ -380,6 +422,9 @@ jobs:
         mkdir -p ./artifact/firmware
         mkdir -p ./artifact/buildinfo
         cp -rf openwrt/.config ./artifact/buildinfo/${{matrix.target}}.config || true
+        if [ -f openwrt/jbox-firmware.json ]; then
+          cp openwrt/jbox-firmware.json ./artifact/buildinfo/
+        fi
         rm -rf $(find openwrt/bin/targets/ -type d -name "packages")
         cp -rf $(find openwrt/bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/ || true
 

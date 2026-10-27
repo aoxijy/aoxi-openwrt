@@ -1,0 +1,32 @@
+#!/bin/sh
+
+PKG_DIR="/etc/pre_install"
+
+if [ -d "$PKG_DIR" ] && [ -n "$(ls -A $PKG_DIR 2>/dev/null)" ]; then
+
+    echo "开始安装预置IPK包..."
+
+    # 第一阶段：优先安装架构特定的包 (e.g., npc_0.26.26-r16_x86_64.ipk)
+    # 这些通常是基础程序或内核模块，LuCI包依赖它们。
+    for pkg in $PKG_DIR/*_*.ipk; do # 模式匹配包含下划线_的包名
+        if [ -f "$pkg" ]; then # 确保是文件，防止没匹配到时循环到通配符本身
+            echo "优先安装基础包: $(basename "$pkg")"
+            opkg install "$pkg" --force-depends
+        fi
+    done
+
+    # 第二阶段：安装所有架构通用的包 (e.g., luci-app-npc_all.ipk)
+    # 这些通常是LuCI界面、主题或脚本，它们依赖第一阶段安装的包。
+    for pkg in $PKG_DIR/*_all.ipk; do
+        if [ -f "$pkg" ]; then
+            echo "安装LuCI应用包: $(basename "$pkg")"
+            opkg install "$pkg" --force-depends
+        fi
+    done
+
+    # 清理现场
+    echo "预安装完成，清理临时文件..."
+    rm -rf $PKG_DIR
+fi
+
+exit 0

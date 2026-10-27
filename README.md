@@ -86,3 +86,11 @@
 <a href="#readme">
 <img src="https://img.shields.io/badge/-返回顶部-FFFFFF.svg" title="返回顶部" align="right"/>
 </a>
+
+## J-Box 固件
+
+新增 `Lean_x86_64_Jox` 和 `Lean_x86_64_Jox_Docker`，分别继承普通版和 Docker 版的插件，移除 OpenClash 及其配置、规则、内核和启动残留，内置 J-Box。
+
+Actions 开始时锁定 J-Box 最新正式发行版；两个固件使用同一版本，验证发行包 SHA-256 后完整嵌入 Node、面板、兼容 sing-box 内核和离线规则。构建信息中的 `jbox-firmware.json` 记录实际版本和校验值。首次开机可直接从 LuCI「服务 → J-Box」访问面板，导入订阅并部署后启用代理。
+
+普通 Jox 版 rootfs 分区为 1024 MB，Docker Jox 版沿用基础 Docker 版的 3000 MB。原有两个 OpenClash 固件保留。
