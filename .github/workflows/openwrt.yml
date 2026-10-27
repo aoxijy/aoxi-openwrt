@@ -272,7 +272,7 @@ jobs:
       if: contains(matrix.target, 'Jox')
       working-directory: openwrt
       run: |
-          python3 build/scripts/jbox-firmware/fix_shortcut_patch.py
+        python3 build/scripts/jbox-firmware/fix_shortcut_patch.py
         python3 build/scripts/jbox-firmware/prepare.py
         make defconfig
         if grep -Eq '^CONFIG_PACKAGE_.*[Oo]pen[Cc]lash.*=[ym]$' .config; then
