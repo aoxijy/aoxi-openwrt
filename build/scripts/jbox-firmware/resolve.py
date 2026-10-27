@@ -12,7 +12,7 @@ with urllib.request.urlopen(request, timeout=60) as response:
 version = release['tag_name']
 assert not release['draft'] and not release['prerelease'], 'Expected a stable release'
 assert re.fullmatch(r'v\d+\.\d+\.\d+', version), 'Invalid release tag'
-assert tuple(map(int, version[1:].split('.'))) >= (0, 1, 210), 'Requires the independent J-Box TUN fix in v0.1.210 or newer'
+assert tuple(map(int, version[1:].split('.'))) >= (0, 1, 211), 'Requires J-Box TUN and EasyTier transport isolation in v0.1.211 or newer'
 assets = {asset['name'] for asset in release['assets']}
 for suffix in ('.tar.gz', '.tar.gz.sha256'):
     assert f'j-box-{version}-linux-x64{suffix}' in assets, 'Missing x64 release assets'
