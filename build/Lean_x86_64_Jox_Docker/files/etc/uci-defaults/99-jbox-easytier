@@ -1,0 +1,14 @@
+#!/bin/sh
+# J-Box owns jbox-tun; leave tun0 available for EasyTier's default device.
+# Preserve optional WAN forwarding choices and enable access between trusted LAN and mesh.
+uci -q get easytier.@easytier[0] >/dev/null || exit 0
+current=$(uci -q get easytier.@easytier[0].et_forward)
+for direction in lanfwet etfwlan; do
+  case " $current " in
+    *" $direction "*) ;;
+    *) current="$current $direction" ;;
+  esac
+done
+uci set easytier.@easytier[0].et_forward="${current# }"
+uci commit easytier
+exit 0

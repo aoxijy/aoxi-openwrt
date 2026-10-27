@@ -79,12 +79,21 @@ jobs:
 
       - uses: actions/checkout@v4
         if: contains(steps.set-models.outputs.models, 'Jox')
+      - uses: actions/setup-python@v5
+        if: contains(steps.set-models.outputs.models, 'Jox')
+        with:
+          python-version: '3.12'
       - name: 锁定两个固件共用的最新 J-Box 正式版
         id: jbox-release
         if: contains(steps.set-models.outputs.models, 'Jox')
         run: |
           python3 build/scripts/jbox-firmware/test_prepare.py
           python3 build/scripts/jbox-firmware/resolve.py
+      - name: 实际发行包解包与 TUN 共存预检
+        if: contains(steps.set-models.outputs.models, 'Jox')
+        env:
+          JBOX_RELEASE_VERSION: ${{ steps.jbox-release.outputs.version }}
+        run: python3 build/scripts/jbox-firmware/smoke_release.py
 
   build:
     needs: [build-openwrt]
@@ -253,6 +262,11 @@ jobs:
         fi
 
         make defconfig
+
+    - uses: actions/setup-python@v5
+      if: contains(matrix.target, 'Jox')
+      with:
+        python-version: '3.12'
 
     - name: 嵌入完整 J-Box 并清除 OpenClash
       if: contains(matrix.target, 'Jox')
