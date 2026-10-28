@@ -27,7 +27,20 @@ def fix(root: Path):
     # Linux 6.18.58 adds tc_depth between unreadable and tc_index.
     new = old.replace('-1030,6 +1030,9', '-1030,7 +1030,10').replace(
         '\n #if defined(CONFIG_NET_SCHED)', '\n \t__u8\t\t\ttc_depth:2;\n #if defined(CONFIG_NET_SCHED)')
-    if section == new:
+    # Lean now carries the stable tc_depth context itself. Preserve its hunk.
+    upstream = '''--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -1032,6 +1032,9 @@
+ #endif
+ 	__u8			unreadable:1;
+ 	__u8			tc_depth:2;
++#ifdef CONFIG_SHORTCUT_FE
++	__u8			fast_forwarded:1;
++#endif
+ #if defined(CONFIG_NET_SCHED) || defined(CONFIG_NET_XGRESS)
+ 	__u16			tc_index;	/* traffic control index */
+ #endif'''
+    if section in (new, upstream):
         return
     if section != old:
         raise RuntimeError('Shortcut FE patch changed upstream; inspect before adapting')
