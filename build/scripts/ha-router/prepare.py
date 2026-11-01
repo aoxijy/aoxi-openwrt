@@ -17,6 +17,10 @@ def prepare(root):
     text = text.rstrip() + '\n' + ''.join(f'CONFIG_PACKAGE_{package}=y\n' for package in PACKAGES)
     config.write_text(text)
     overlay = root / 'files'
+    # Override the package's sample VRRP topology on fresh installations.
+    defaults = overlay / 'etc/config/keepalived'
+    defaults.parent.mkdir(parents=True, exist_ok=True)
+    defaults.write_text("config globals 'globals'\n")
     kit = overlay / 'usr/share/ha-quick'
     kit.mkdir(parents=True, exist_ok=True)
     for name in ('install.sh', 'load-identity.sh', 'README.md'):
@@ -39,6 +43,10 @@ start() {
     first.write_text('''#!/bin/sh
 /etc/init.d/ha-quick enable
 /etc/init.d/ha-quick start
+if [ ! -e /etc/ha-router.enabled ]; then
+    /etc/init.d/keepalived stop
+    /etc/init.d/keepalived disable
+fi
 exit 0
 ''')
     first.chmod(0o755)

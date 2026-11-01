@@ -22,6 +22,8 @@ class PrepareTests(unittest.TestCase):
                 self.assertEqual(once.count(f'CONFIG_PACKAGE_{package}=y'), 1)
             self.assertFalse((root / 'files/etc/ha-router.enabled').exists())
             self.assertFalse((root / 'files/etc/init.d/keepalived').exists())
+            self.assertNotIn('vrrp_instance', (root / 'files/etc/config/keepalived').read_text())
+            self.assertIn('keepalived disable', (root / 'files/etc/uci-defaults/99-ha-quick').read_text())
             self.assertIn('/usr/share/ha-quick', (root / 'files/etc/init.d/ha-quick').read_text())
             for node in (2, 8):
                 text = (root / f'files/usr/share/ha-quick/payload/easytier-{node}.toml').read_text()
