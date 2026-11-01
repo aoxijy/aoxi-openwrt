@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/sbin/capsh --gid=20260 -- -c 'exec "$@"' jbox-easytier "$@"

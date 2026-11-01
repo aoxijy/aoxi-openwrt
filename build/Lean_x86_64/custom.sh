@@ -162,19 +162,8 @@ exit 0
 EOF
 chmod +x files/etc/rc.local
 
-# 下载预安装的IPK包
-echo "下载预安装IPK包..."
-# 示例：下载npc和luci-app-npc（请替换为真实可用的URL）
-wget -O files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk https://example.com/path/to/npc_0.26.26-r16_x86_64.ipk || echo "npc包下载失败，将继续编译"
-wget -O files/etc/pre_install/luci-app-npc_all.ipk https://example.com/path/to/luci-app-npc_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
-
-# 检查下载是否成功
-if [ ! -f "files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk" ]; then
-    echo "警告: npc包下载失败! 预安装将跳过此包"
-fi
-if [ ! -f "files/etc/pre_install/luci-app-npc_all.ipk" ]; then
-    echo "警告: luci-app-npc包下载失败! 预安装将跳过此包"
-fi
+# 使用仓库 files/etc/pre_install 中随固件提供的 EasyTier/NPC 包。
+# 不再下载 example.com 占位地址，避免生成零字节 IPK。
 
 # 自定义定制选项
 NET="package/base-files/files/bin/config_generate"   # 修正路径

@@ -1,0 +1,32 @@
+hostname = "GQRU-Home"
+instance_name = "yksnet"
+instance_id = "af8dbdf1-17ec-4240-b87a-fced5660eea5"
+ipv4 = "172.18.28.180/24"
+ipv6_public_addr_auto = false
+dhcp = false
+listeners = [
+    "tcp://0.0.0.0:11010",
+    "udp://0.0.0.0:11010",
+    "wg://0.0.0.0:11011",
+]
+
+dev_name = "tun0"
+rpc_portal = "127.0.0.1:15888"
+
+[[proxy_network]]
+cidr = "172.18.18.0/24"
+
+[network_identity]
+network_name = "yksnet"
+network_secret = "__HA_ET_SECRET__"
+
+[[peer]]
+uri = "tcp://fns.gqru.com:11010"
+
+[[peer]]
+uri = "tcp://tx.gqru.com:11010"
+
+[[peer]]
+uri = "tcp://hhc.gqru.com:11010"
+
+[flags]

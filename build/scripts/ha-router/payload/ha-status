@@ -1,0 +1,13 @@
+#!/bin/sh
+echo "=== $(uci -q get system.@system[0].hostname) ==="
+ip -4 addr show dev br-lan | grep inet
+echo "role=$(cat /tmp/ha-role 2>/dev/null)"
+echo "keepalived=$(pidof keepalived)"
+echo "sing-box=$(pidof sing-box)"
+echo "proxy_profile=$(cat /etc/ha-proxy-profile 2>/dev/null)"
+echo "openclash=$(pidof clash_meta clash)"
+echo "easytier=$(pidof easytier-core)"
+echo "npc=$(pidof npc)"
+/usr/libexec/ha-check
+echo "health_exit=$?"
+ip -4 route

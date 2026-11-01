@@ -1,0 +1,25 @@
+#!/bin/sh
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+[ ! -e /tmp/ha-maintenance ] || exit 1
+[ "$(cat /sys/class/net/br-lan/carrier 2>/dev/null)" = 1 ] || exit 1
+profile=$(cat /etc/ha-proxy-profile 2>/dev/null)
+case "$profile" in
+  jbox) pidof sing-box >/dev/null || exit 1
+        ip link show jbox-tun >/dev/null 2>&1 || exit 1 ;;
+  openclash) [ "$(uci -q get openclash.config.enable)" = 1 ] || exit 1
+             pidof clash_meta clash >/dev/null || exit 1 ;;
+  *) exit 1 ;;
+esac
+timeout 4 nslookup www.baidu.com 127.0.0.1 >/dev/null 2>&1 || exit 1
+if ip -4 addr show dev br-lan | grep -q 'inet 172.18.18.18/'; then
+    now=$(cut -d. -f1 /proc/uptime)
+    since=$(cat /tmp/ha-active-since 2>/dev/null)
+    [ -n "$since" ] || exit 0
+    if [ "$((now - since))" -gt 60 ]; then
+        pidof easytier-core >/dev/null || exit 1
+        pidof npc >/dev/null || exit 1
+        ip -4 addr show dev tun0 2>/dev/null | grep -q 'inet 172.18.28.' || exit 1
+        timeout 4 easytier-cli -o json node 2>/dev/null | grep -q '"ipv4_addr": "172.18.28.' || exit 1
+    fi
+fi
+exit 0

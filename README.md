@@ -94,3 +94,16 @@
 Actions 开始时锁定 J-Box 最新正式发行版；两个固件使用同一版本，验证发行包 SHA-256 后完整嵌入 Node、面板、兼容 sing-box 内核和离线规则。构建信息中的 `jbox-firmware.json` 记录实际版本和校验值。首次开机可直接从 LuCI「服务 → J-Box」访问面板，导入订阅并部署后启用代理。
 
 普通 Jox 版 rootfs 分区为 1024 MB，Docker Jox 版沿用基础 Docker 版的 3000 MB。原有两个 OpenClash 固件保留。
+
+## 双旁路由 VRRP 快速配置
+
+全部四种固件内置 `keepalived`、`flock`、`libcap-bin`、`ip-full`、`kmod-tun` 和手动 HA 配置工具，首次启动不自动占用 VIP。
+
+| 设备 | J-box | OpenClash |
+|---|---|---|
+| 主用 .2 | `sh /tmp/ha-quick/install.sh 2 jbox` | `sh /tmp/ha-quick/install.sh 2 openclash` |
+| 备用 .8 | `sh /tmp/ha-quick/install.sh 8 jbox` | `sh /tmp/ha-quick/install.sh 8 openclash` |
+
+先设置原 LAN 地址、网关 .1，配置并启动代理和 DNS。VIP 固定为 `172.18.18.18`。命令会读取设备本地身份或隐藏输入 EasyTier/NPS 密钥；公开固件不包含真实密钥。支持 `--check` 只做预检。
+
+[配置行为、密钥保存和重装说明](build/scripts/ha-router/README.md)。

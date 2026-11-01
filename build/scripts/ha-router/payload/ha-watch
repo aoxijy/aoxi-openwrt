@@ -1,0 +1,7 @@
+#!/bin/sh
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+# Periodic reconciliation also stops accidental service starts on a standby.
+while true; do
+    /usr/libexec/ha-role reconcile
+    sleep 10
+done

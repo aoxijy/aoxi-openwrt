@@ -1,0 +1,11 @@
+    # HA_EASYTIER_BYPASS: keep mesh transport outside J-box interception.
+    nft -f - <<-EOF
+        table $NFT_TABLE {
+            chain mesh_out {
+                type route hook output priority -151; policy accept;
+            }
+        }
+        flush chain $NFT_TABLE mesh_out
+        add rule $NFT_TABLE mesh_out meta skgid 20260 counter meta mark set $SINGBOX_OUTPUT_MARK
+EOF
+    [ "$?" = 0 ] || return 1

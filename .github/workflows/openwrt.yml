@@ -78,11 +78,17 @@ jobs:
           echo "models=$JSON_MODELS" >> $GITHUB_OUTPUT
 
       - uses: actions/checkout@v4
-        if: contains(steps.set-models.outputs.models, 'Jox')
       - uses: actions/setup-python@v5
-        if: contains(steps.set-models.outputs.models, 'Jox')
         with:
           python-version: '3.12'
+      - name: 验证 HA 安装器及源码下载修复
+        run: |
+          python3 build/scripts/ha-router/test_prepare.py
+          python3 build/scripts/test_prefetch_sources.py
+          for script in build/scripts/ha-router/install.sh build/scripts/ha-router/load-identity.sh build/scripts/ha-router/payload/ha-*; do
+            sh -n "$script"
+          done
+
       - name: 锁定两个固件共用的最新 J-Box 正式版
         id: jbox-release
         if: contains(steps.set-models.outputs.models, 'Jox')
@@ -273,7 +279,6 @@ jobs:
       if: contains(matrix.target, 'Jox')
       working-directory: openwrt
       run: |
-        python3 build/scripts/jbox-firmware/fix_shortcut_patch.py
         python3 build/scripts/jbox-firmware/prepare.py
         make defconfig
         if grep -q '^LUCI_BASENAME:=argon-config$' package/aoxi-package/luci-theme-argon/Makefile && [ -d feeds/luci/applications/luci-app-argon-config ]; then
@@ -284,6 +289,16 @@ jobs:
           echo 'OpenClash unexpectedly enabled' >&2
           exit 1
         fi
+
+    - name: 统一内核补丁与旁路由 HA 配置
+      working-directory: openwrt
+      run: |
+        python3 build/scripts/jbox-firmware/fix_shortcut_patch.py
+        python3 build/scripts/ha-router/prepare.py
+        make defconfig
+        for package in keepalived flock libcap-bin ip-full kmod-tun; do
+          grep -qx "CONFIG_PACKAGE_$package=y" .config || { echo "Missing HA package: $package" >&2; exit 1; }
+        done
 
     - name: SSH远程连接服务器
       uses: db-one/debugger-action@main
@@ -377,7 +392,9 @@ jobs:
 
     - name: 下载编译所需文件
       run: |
-        cd openwrt && make download -j4
+        cd openwrt
+        python3 build/scripts/prefetch_sources.py
+        make download -j4 || make download -j1 V=s
 
     - name: 修复 dockerd 编译环境
       run: |
@@ -396,6 +413,10 @@ jobs:
         # 清除 target/linux 安装标记，强制重新生成固件镜像（防止缓存导致 Image/Build 被跳过）
         find build_dir/target-*/linux-* -maxdepth 1 -name ".stamp_installed" -delete 2>/dev/null || true
         make -j$(nproc) V=sc 2>&1 | tee build.log || (echo "编译失败，查看详细日志..." && tail -n 100 build.log && exit 1)
+
+    - name: 验证固件内置 HA 依赖及配置工具
+      working-directory: openwrt
+      run: python3 build/scripts/ha-router/verify.py
 
     - name: 验证 J-Box 固件内容与网页权限
       if: contains(matrix.target, 'Jox')
@@ -442,6 +463,7 @@ jobs:
         mkdir -p ./artifact/firmware
         mkdir -p ./artifact/buildinfo
         cp -rf openwrt/.config ./artifact/buildinfo/${{matrix.target}}.config || true
+        cp -f openwrt/source-preflight.json ./artifact/buildinfo/ 2>/dev/null || true
         if [ -f openwrt/jbox-firmware.json ]; then
           cp openwrt/jbox-firmware.json ./artifact/buildinfo/
         fi

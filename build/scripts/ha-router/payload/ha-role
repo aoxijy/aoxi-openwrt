@@ -1,0 +1,35 @@
+#!/bin/sh
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 077
+exec 9>/var/lock/ha-role.lock
+flock -n 9 || exit 0
+has_vip() { ip -4 addr show dev br-lan | grep -q 'inet 172.18.18.18/'; }
+requested="$1"
+if has_vip; then
+    role=MASTER
+else
+    role=BACKUP
+fi
+# Reconcile against the actual address, so delayed notifications are harmless.
+old=$(cat /tmp/ha-role 2>/dev/null)
+if [ "$role" = MASTER ]; then
+    if [ "$old" != MASTER ]; then
+        cut -d. -f1 /proc/uptime >/tmp/ha-active-since
+        /etc/init.d/dnsmasq restart >/dev/null 2>&1
+    fi
+    if ! pidof easytier-core >/dev/null; then
+        /etc/init.d/easytier start >/dev/null 2>&1
+    elif ! ip -4 addr show dev tun0 2>/dev/null | grep -q 'inet 172.18.28.'; then
+        # A first-time LuCI network reload can flush the TUN address.
+        /etc/init.d/easytier restart >/dev/null 2>&1
+    fi
+    if ! pidof npc >/dev/null; then
+        /etc/init.d/npc start >/dev/null 2>&1
+    fi
+else
+    /etc/init.d/easytier stop >/dev/null 2>&1
+    /etc/init.d/npc stop >/dev/null 2>&1
+    rm -f /tmp/ha-active-since
+fi
+printf '%s\n' "$role" >/tmp/ha-role
+[ "$old" = "$role" ] || logger -t ha-router "role=$role notification=$requested"

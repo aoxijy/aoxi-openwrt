@@ -1,0 +1,9 @@
+
+config npc
+	option enable '1'
+	option server_addr 'hhc.gqru.com'
+	option vkey '__HA_NPS_VKEY__'
+	option server_port '18003'
+	option protocol 'tcp'
+	option compress '0'
+	option crypt '0'
