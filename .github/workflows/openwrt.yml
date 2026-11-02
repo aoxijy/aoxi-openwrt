@@ -84,6 +84,7 @@ jobs:
       - name: 验证 HA 安装器及源码下载修复
         run: |
           python3 build/scripts/ha-router/test_prepare.py
+          python3 build/scripts/ha-router/test_verify.py
           python3 build/scripts/test_prefetch_sources.py
           for script in build/scripts/ha-router/install.sh build/scripts/ha-router/load-identity.sh build/scripts/ha-router/payload/ha-*; do
             sh -n "$script"
@@ -295,6 +296,10 @@ jobs:
       run: |
         python3 build/scripts/jbox-firmware/fix_shortcut_patch.py
         python3 build/scripts/ha-router/prepare.py
+        if grep -q '^LUCI_BASENAME:=argon-config$' package/aoxi-package/luci-theme-argon/Makefile && [ -d feeds/luci/applications/luci-app-argon-config ]; then
+          echo 'Legacy Argon recipe conflicts with integrated theme translations' >&2
+          exit 1
+        fi
         make defconfig
         for package in keepalived flock libcap-bin ip-full kmod-tun; do
           grep -qx "CONFIG_PACKAGE_$package=y" .config || { echo "Missing HA package: $package" >&2; exit 1; }

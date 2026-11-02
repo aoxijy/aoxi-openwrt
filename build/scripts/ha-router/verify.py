@@ -4,7 +4,12 @@ from pathlib import Path
 
 
 def verify(root):
-    manifests = list((root / 'bin/targets').rglob('*.manifest'))
+    targets = root / 'bin/targets'
+    # packages/Packages.manifest is a package repository index (RFC822), not
+    # the opkg list-installed manifest emitted for a firmware image.
+    manifests = [path for path in targets.rglob('*.manifest')
+                 if 'packages' not in path.relative_to(targets).parts[:-1]
+                 and path.name != 'Packages.manifest']
     assert manifests, 'No firmware manifest'
     for manifest in manifests:
         names = {line.split(' - ')[0] for line in manifest.read_text().splitlines()}
